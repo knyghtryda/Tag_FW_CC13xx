@@ -9,10 +9,11 @@
 // Cap every sleep while bringing the port up, so the tag checks in often
 #define DEBUG_MAX_SLEEP    5000
 
-// Reported to the AP. The AP sends zlib compressed images to a tag whose
-// version reaches the tagtype's "zlib_compression" value; stay below it
-// until zlib decoding fits in RAM. The first version the AP shows is 2.
-#define FW_VERSION         0x0002
+// Reported to the AP, which picks the image format from it: G5 once the
+// version reaches the tagtype's "g5_compression" value (hex), zlib once it
+// reaches "zlib_compression". The 74H tagtype (87.json) has g5_compression
+// "3" and no zlib (doesn't fit in RAM yet). 2 = raw images only, 3 = G5.
+#define FW_VERSION         0x0003
 
 #define TEMP_BUF_SIZE      256
 extern uint8_t gTempBuf[TEMP_BUF_SIZE];

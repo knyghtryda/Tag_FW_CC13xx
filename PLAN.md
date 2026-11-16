@@ -88,14 +88,44 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       `44670C1210085924`, hwType 0x86, ver 2, 3273 mV, 19 °C, RSSI −71.
       `common/syncedproto.c` didn't fill `currentChannel` in the check-in (AP
       showed `ch` 0); fixed, AP now shows `ch` 202
-- [ ] Stage 2, images: port the G5 decoder from `../Tag_FW_Chroma/g5/`
-      (packed rows, ~384 B workspace, decodes slot→slot in SPI flash; Apache
-      licence files alongside). Needs G5_MAX_WIDTH 800 / G5_ROW_BYTES 100,
-      the Chroma `syncedproto.c` G5 slot handling, and an AP tagtype `86.json`
-      (800x480, yellow colour table, `g5_compression` ≤ our FW_VERSION)
-- [ ] Image download into the SPI flash slots and display
-- [ ] HW_TYPE and AP tagtype file for the 74H (BWY colour table)
-- [ ] End-to-end image push verified at the AP (`hash` updates, `pending` clears)
+- [x] Stage 2, images (2026-11-16): G5 decoder from `../Tag_FW_Chroma/g5/`
+      (0e17be9) in `g5/` with its BSL 1.1 licence files, rows widened to 800
+      px, private 396-byte workspace. `common/syncedproto.c` (`G5_SUPPORT`
+      from `board.h`, 74H only): G5 file decoded into a second slot that skips
+      the displayed one; `imageSize` now 32-bit (raw 74H image = 96000 bytes);
+      downloads larger than a slot rejected; a failed decode clears
+      `curDataInfo` so it isn't acknowledged as shown. FW_VERSION 3.
+      51.6 KB flash / 10.2 KB RAM.
+      **HW_TYPE 0x87**, not 0x86: 0x86 is `CHROMA_74_BWY` (the 640×384
+      CC1110 Chroma74 BWY, `../OpenEPaperLink-chroma74-bwy` 151f772d and the
+      shared-definitions branch `chroma74-bwy-hwid`); 0x81 `CHROMA_AEON_74`
+      ("also Chroma 74H+") is BWR. Tagtype `87.json` (800×480 BWY,
+      `usetemplate` 54, `g5_compression` "3") written in the AP fork and
+      uploaded to the AP (`/edit`; `/littlefs_put` answered "Disk full?").
+      The AP sent the first image as G5 (imgtype 0x31, 2477 bytes).
+      First attempt: downloaded fine, decode failed every time (JTAG:
+      `curDataInfo` cleared, `curBlock.blockId` 1). The same file decoded
+      correctly on the host (`g5.c` + a RAM flash mock), so the cause was
+      on the tag: `eepromRead()` didn't wait for the page program
+      `eepromWrite()` leaves running. Fixed in `common/eeprom.c`
+- [x] End-to-end image push (2026-11-16 09:21): AP shows `hash`
+      `bc8825c3691439f6`, `pending` 0, `updatecount` 1. Panel: black and
+      yellow both right, but rows 0–~40 (the slot's first 4 KB sector)
+      corrupted: `eepromErase()` sent WREN while the download's last page
+      program was running, so the first sector's erase was ignored and the
+      decoded rows were ANDed onto old data. Fixed (busy wait before each
+      WREN). Run 2 (09:28, hash `10f73018ed450883`): borders, a 2 px black
+      and a 4 px yellow line under the top border all correct (user)
+- [ ] Main loop: sleep what the AP's `AvailDataInfo.nextCheckIn` says (as
+      `ChromaAeon74/main.c`), not a fixed 40 s capped by DEBUG_MAX_SLEEP. The
+      AP models the tag's sleep from what it offered and holds new content
+      until the expected check-in is < 5 min away; with the fixed loop it
+      held run 2 for an hour. With AP "Shorten latency during config" on and
+      the web UI open, the AP offers short sleeps
+- [ ] AP: `g5Compress()` takes the buffer size as `uint16_t`, so an 800×960
+      two-plane frame (96000 bytes) wraps to 30464: images compressing above
+      ~30 KB fail with `G5_DATA_OVERFLOW` and go out raw (96000 bytes, handled).
+      Fix in the AP (`uint32_t`) before relying on G5 for photos
 
 ## README to-do list (all CC13xx tags)
 

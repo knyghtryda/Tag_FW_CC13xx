@@ -40,6 +40,8 @@ CFLAGS_EXTRA = --c99
 COMMON_EXCLUDE = proxy.c CobsFraming.c
 LOCAL_EXCLUDE = oepl_CC1310.c easylink/EasyLink_nortos.c easylink/easylink_config.c \
                 smartrf_settings/smartrf_settings_predefined.c
+# G5 image decoder (G5_SUPPORT in common/board.h)
+EXTRA_SOURCES = ../g5/g5.c
 else ifeq ($(CONFIG),Release)
 COMMON_EXCLUDE =
 else
@@ -47,15 +49,16 @@ $(error CONFIG must be Debug, Proxy, EpdTest, Chroma74H or Release)
 endif
 
 SOURCES = $(filter-out $(LOCAL_EXCLUDE),$(wildcard *.c easylink/*.c smartrf_settings/*.c)) \
-          $(filter-out $(addprefix ../common/,$(COMMON_EXCLUDE)),$(wildcard ../common/*.c))
+          $(filter-out $(addprefix ../common/,$(COMMON_EXCLUDE)),$(wildcard ../common/*.c)) \
+          $(EXTRA_SOURCES)
 OBJECTS = $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.obj)))
-vpath %.c . easylink smartrf_settings ../common
+vpath %.c . easylink smartrf_settings ../common ../g5
 
 CFLAGS = --silicon_version=7M3 --code_state=16 --little_endian \
          --float_support=none --symdebug:dwarf --gen_func_subsections=on \
          --diag_warning=225 --diag_warning=255 --diag_wrap=off \
          --display_error_number $(CFLAGS_EXTRA) $(DEFINES) \
-         -I. -I../common -I../shared -I../bb_epaper/src \
+         -I. -I../common -I../shared -I../g5 -I../bb_epaper/src \
          -I$(SDK)/source -I$(SDK)/kernel/nortos -I$(SDK)/kernel/nortos/posix \
          -I$(CGT)/include
 

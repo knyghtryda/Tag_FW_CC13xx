@@ -10,6 +10,9 @@
 #include "drawing.h"
 #include "board.h"
 #include "radio.h"
+#ifdef G5_SUPPORT
+#include "g5.h"
+#endif
 
 // #define DEBUGBLOCKS
 
@@ -28,6 +31,7 @@ bool requestPartialBlock = false;       // if we should ask the AP to get this b
 
 uint8_t prevImgSlot = 0xFF;
 uint8_t curImgSlot = 0xFF;
+static uint8_t shownImgSlot = 0xFF;   // slot last drawn from SPI flash
 uint32_t curHighSlotId = 0;
 uint8_t nextImgSlot = 0;
 #define imgSlots IMAGE_SLOTS;
@@ -497,6 +501,7 @@ static void saveImgBlockData(const uint8_t imgSlot, const uint8_t blockId)
 
 void drawImageFromEeprom(const uint8_t imgSlot)
 {
+   shownImgSlot = imgSlot;
    drawImageAtAddress(getAddressForSlot(imgSlot), drawWithLut);
    drawWithLut = 0; // default back to the regular ol' stock/OTP LUT
 }
@@ -667,7 +672,42 @@ static bool downloadFWUpdate(const struct AvailDataInfo *avail)
    return true;
 }
 
-uint16_t imageSize = 0;
+// Raw two plane images exceed 64 KB (96000 bytes on an 800x480 panel)
+uint32_t imageSize = 0;
+
+#ifdef G5_SUPPORT
+// Decode the G5 file just downloaded into slot Src into another slot,
+// leaving the displayed one alone. The compressed copy never gets a valid
+// header, so its slot is simply reused later.
+static bool decodeG5Image(const uint8_t Src)
+{
+   uint8_t Dst = Src;
+   uint8_t RawType;
+   uint32_t RawSize;
+
+   do {  // IMAGE_SLOTS >= 3
+      if(++Dst >= IMAGE_SLOTS) {
+         Dst = 0;
+      }
+   } while(Dst == Src || Dst == shownImgSlot);
+
+   LOG("G5: decoding slot %d into slot %d\n",Src,Dst);
+   eraseImageBlock(Dst);
+   RawType = g5Decode(getAddressForSlot(Src) + sizeof(struct EepromImageHeader),
+                      imageSize,
+                      getAddressForSlot(Dst) + sizeof(struct EepromImageHeader),
+                      &RawSize);
+   if(!RawType) {
+      ELOG("G5 decode failed\n");
+      return false;
+   }
+   curImgSlot = nextImgSlot = Dst;
+   imageSize = RawSize;
+   curDataInfo.dataType = RawType;
+   return true;
+}
+#endif
+
 static bool downloadImageDataToEEPROM(const struct AvailDataInfo *avail)
 {
 // check if we already started the transfer of this information & haven't completed it
@@ -677,6 +717,12 @@ static bool downloadImageDataToEEPROM(const struct AvailDataInfo *avail)
       curImgSlot = nextImgSlot;
    }
    else {
+      if(!avail->dataSize
+         || avail->dataSize > EEPROM_IMG_EACH - sizeof(struct EepromImageHeader))
+      {
+         ELOG("Image size %d doesn't fit a slot\n",avail->dataSize);
+         return false;
+      }
    // go to the next image slot
       nextImgSlot++;
       if(nextImgSlot >= IMAGE_SLOTS) {
@@ -721,6 +767,14 @@ static bool downloadImageDataToEEPROM(const struct AvailDataInfo *avail)
       }
    }
 // no more data, download complete
+#ifdef G5_SUPPORT
+   if(curDataInfo.dataType == DATATYPE_IMG_G5 && !decodeG5Image(curImgSlot)) {
+   // Forget the transfer: with dataSize 0 and a matching version the next
+   // AvailDataInfo would otherwise be taken for the image on display
+      memset(&curDataInfo,0,sizeof(curDataInfo));
+      return false;
+   }
+#endif
 
 // borrow the blockXferBuffer temporarily
    struct EepromImageHeader *eih = (struct EepromImageHeader *)blockXferBuffer;
@@ -748,6 +802,9 @@ bool processAvailDataInfo(struct AvailDataInfo *avail)
       case DATATYPE_IMG_RAW_1BPP:
       case DATATYPE_IMG_RAW_2BPP:
       case DATATYPE_IMG_ZLIB:
+#ifdef G5_SUPPORT
+      case DATATYPE_IMG_G5:
+#endif
          LOG("RAW_BPP\n");
             // check if this download is currently displayed or active
          if(curDataInfo.dataSize == 0 && !memcmp((const void *)&avail->dataVer, (const void *)&curDataInfo.dataVer, 8)) {

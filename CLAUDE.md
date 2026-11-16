@@ -275,6 +275,29 @@ doesn't generate, so porting it means mapping onto `smartrf_settings.c`. The
 SmartRF settings ask for 14 dBm TX, which needs `CCFG_FORCE_VDDR_HH = 1` in the
 CCFG.
 
+## 74H OEPL status (2026-11-16)
+
+- Checks in with the sub-GHz AP and displays G5 images end to end. MAC
+  `44670C1210085924` (`InitSN()`: `44 67`, SN letters − 'A', 4 BCD bytes).
+- **hwType 0x87** (provisional, 800×480 BWY). Not 0x86: that is
+  `CHROMA_74_BWY`, the 640×384 CC1110 Chroma74 BWY (user's AP fork
+  `../OpenEPaperLink-chroma74-bwy`, shared branch `chroma74-bwy-hwid`). Not
+  0x81 `CHROMA_AEON_74` ("also Chroma 74H+"): that one is BWR.
+- AP tagtype `87.json` (in the AP fork, uploaded to the AP via the file
+  editor `/edit`; `/littlefs_put` failed with "Disk full?"):
+  `g5_compression` "3" = FW_VERSION 3. No zlib (RAM).
+- G5 decoder: `g5/` (from Tag_FW_Chroma, BSL 1.1 like `bb_epaper`), decoded
+  slot to slot in SPI flash, enabled by `G5_SUPPORT` in `common/board.h`. The
+  AP's `g5Compress()` takes a 16-bit size, so a frame compressing above ~30 KB
+  falls back to raw (96000 bytes, also handled).
+- To test the decoder on the PC: fetch the AP's file
+  (`/edit?download=/current/<MAC>_*.pending`) and run `g5/g5.c` with
+  `eepromRead`/`eepromWrite` mocked on a RAM array (gcc in WSL, ASan).
+- **SPI flash timing:** a page program or erase runs on after the SPI
+  command. Every read and every WREN must wait for the busy bit first
+  (`eepromPrvBusyWait()`); without it, reads returned garbage and a sector
+  erase right after a write was silently ignored.
+
 ## Factory NVRAM: don't destroy it
 
 Learned on the CC1110 Chroma tags (`../Tag_FW_Chroma/chroma_60_files/pr_nvram_fixes.md`):
