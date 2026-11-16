@@ -115,6 +115,16 @@ for `--range=0,0x10000`); everything above 0x10000 is `BA D0` fill, so keep
 only the first 64 KB. After flashing,
 **power cycle** the tag; the XDS110 reset pulse doesn't start the new image.
 
+**Webcam on the panel** (Dell Webcam WB7022, pointed at the 74H; ffmpeg from
+winget). Grab a frame and look at it with the Read tool:
+
+```
+F=/c/Users/yancorp/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.2-full_build/bin/ffmpeg.exe
+MSYS_NO_PATHCONV=1 "$F" -loglevel error -y -f dshow -video_size 1920x1080 -i video="Dell Webcam WB7022" -ss 2 -frames:v 1 <scratchpad>/cam.jpg
+```
+
+Window glare can wash out part of the panel; judge colours on the shaded side.
+
 **Take the vendor dumps before flashing anything.** They are the only way back
 to stock. If the debug port turns out to be locked, getting in means a mass
 erase that destroys the stock firmware — stop and ask the user first.
@@ -286,9 +296,16 @@ CCFG.
 - AP tagtype `87.json`: its own branch `feat/chroma74h-tagtype` (from
   upstream master) in `../OpenEPaperLink-chroma74-bwy`, separate from the
   0x86 work (0x86 re-identifies an already released tag, 0x87 is a new
-  device). Uploaded to the AP via the file editor `/edit` (`/littlefs_put`
-  failed with "Disk full?"). `g5_compression` "3" = FW_VERSION 3. No zlib
-  (RAM).
+  device). `g5_compression` "3" = FW_VERSION 3. No zlib (RAM). It uses the
+  800×480 layouts of `36.json` (`usetemplate` is a decimal hwType: 54 =
+  0x36), which the AP doesn't fetch by itself; both files are on the AP.
+- Upload to the AP with `curl -F path=/tagtypes/87.json -F file=@...
+  .../littlefs_put`, and **set `MSYS_NO_PATHCONV=1` in Git Bash**: it
+  rewrites `path=/tagtypes/...` into `C:/Program Files/Git/tagtypes/...`
+  and the AP answers "Error. Disk full?" (not an AP bug).
+- AP content is held until the tag's expected check-in (from the sleep the AP
+  offered) is < 5 min away. For bench tests set the AP's "Shorten latency
+  during config" to yes and keep its web page open.
 - G5 decoder: `g5/` (from Tag_FW_Chroma, BSL 1.1 like `bb_epaper`), decoded
   slot to slot in SPI flash, enabled by `G5_SUPPORT` in `common/board.h`. The
   AP's `g5Compress()` takes a 16-bit size, so a frame compressing above ~30 KB

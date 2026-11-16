@@ -96,6 +96,9 @@ SECTIONS
     .bss            :   > SRAM
     .sysmem         :   > SRAM
     .nonretenvar    :   > SRAM
+    /* #pragma NOINIT variables, not touched by the C startup (the watchdog
+       reset marker in oepl_74h.c) */
+    .TI.noinit      :   > SRAM
 
     .stack          :   > SRAM (HIGH)
 }

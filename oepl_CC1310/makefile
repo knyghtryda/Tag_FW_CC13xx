@@ -1,7 +1,7 @@
 # Command-line build of oepl_CC1310 with TI ARM-CGT, mirroring the CCS
 # project (.cproject). Runs in WSL/Linux:
 #
-#   make [CONFIG=Debug|Proxy|EpdTest|Chroma74H|Release]   ->  build/<CONFIG>/oepl_CC1310.out + .map
+#   make [CONFIG=Debug|Proxy|EpdTest|Chroma74H]   ->  build/<CONFIG>/oepl_CC1310.out + .map
 #
 # EpdTest is a Chroma 74H bring-up build: it draws the stock screen stored in
 # SPI flash at 0x15000 using the panel's factory script, then idles.
@@ -34,19 +34,23 @@ DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -D_CUSTOM_IO_=oepl_io.inl \
            -DEPD_TEST
 else ifeq ($(CONFIG),Chroma74H)
 # The OEPL tag firmware: main in oepl_74h.c, no EasyLink
-DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -DOEPL_74H
-# common/ OEPL code is written for C99 (the Aeon's compiler default)
-CFLAGS_EXTRA = --c99
+DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -DOEPL_74H -DEPD_HW_SPI
+# common/ OEPL code is written for C99 (the Aeon's compiler default).
+# Logging needs no float printf. Flash used, 2026-11-16: 52.5 KB without
+# either, 43.9 KB with both (--opt_level=4 would save another 1.3 KB).
+CFLAGS_EXTRA = --c99 --printf_support=nofloat
+OPT ?= --opt_level=2 --opt_for_speed=0
 COMMON_EXCLUDE = proxy.c CobsFraming.c
 LOCAL_EXCLUDE = oepl_CC1310.c easylink/EasyLink_nortos.c easylink/easylink_config.c \
                 smartrf_settings/smartrf_settings_predefined.c
 # G5 image decoder (G5_SUPPORT in common/board.h)
 EXTRA_SOURCES = ../g5/g5.c
-else ifeq ($(CONFIG),Release)
-COMMON_EXCLUDE =
 else
-$(error CONFIG must be Debug, Proxy, EpdTest, Chroma74H or Release)
+$(error CONFIG must be Debug, Proxy, EpdTest or Chroma74H (the CCS project's Release has no board define))
 endif
+
+# One-off test switches, e.g. make CONFIG=Chroma74H EXTRA_DEFINES=-DWDT_TEST -B
+DEFINES += $(EXTRA_DEFINES)
 
 SOURCES = $(filter-out $(LOCAL_EXCLUDE),$(wildcard *.c easylink/*.c smartrf_settings/*.c)) \
           $(filter-out $(addprefix ../common/,$(COMMON_EXCLUDE)),$(wildcard ../common/*.c)) \
@@ -57,7 +61,7 @@ vpath %.c . easylink smartrf_settings ../common ../g5
 CFLAGS = --silicon_version=7M3 --code_state=16 --little_endian \
          --float_support=none --symdebug:dwarf --gen_func_subsections=on \
          --diag_warning=225 --diag_warning=255 --diag_wrap=off \
-         --display_error_number $(CFLAGS_EXTRA) $(DEFINES) \
+         --display_error_number $(OPT) $(CFLAGS_EXTRA) $(DEFINES) \
          -I. -I../common -I../shared -I../g5 -I../bb_epaper/src \
          -I$(SDK)/source -I$(SDK)/kernel/nortos -I$(SDK)/kernel/nortos/posix \
          -I$(CGT)/include

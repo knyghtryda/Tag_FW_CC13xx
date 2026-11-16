@@ -38,6 +38,11 @@
 #define SCREEN_HEIGHT               480
 // G5 compressed images (DATATYPE_IMG_G5), decoded by g5/ into a raw slot
 #define G5_SUPPORT
+// AP commands (DATATYPE_COMMAND_DATA), executeCommand() in oepl_74h.c
+#define OEPL_COMMANDS
+// Preloaded images (AP lost / no AP screens etc.), kept out of the slot
+// rotation; the image header records the AvailDataInfo argument
+#define OEPL_PRELOADS
 
 #define EEPROM_FACTORY_START        0x0
 #define EEPROM_FACTORY_LEN          0x3000

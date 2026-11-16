@@ -10,6 +10,8 @@
 #include <NoRTOS.h>
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/aon_batmon.h)
+#include DeviceFamily_constructPath(driverlib/sys_ctrl.h)
+#include <ti/drivers/Watchdog.h>
 
 #include "Board.h"
 #include "main.h"
@@ -24,6 +26,19 @@
 #define NVRAM_SECTOR_SIZE  0x1000
 #define BATMON_TIMEOUT_MS  100
 
+// Longest single sleep: the watchdog is reloaded before each chunk, so a
+// sleep that doesn't reach standby (the counter only pauses there) can't
+// trip it. The watchdog period limit is 2863 s.
+#define SLEEP_CHUNK_MS     (20 * 60 * 1000UL)
+#define SLEEP_WDT_MARGIN_MS 60000UL
+
+// Set by the watchdog NMI before it resets the chip, read on the next boot.
+// Not zeroed by the C startup; the CC1310 keeps SRAM through a system reset.
+#define WDT_RESET_MAGIC    0x57445452UL   // "WDTR"
+#pragma NOINIT(gWdtResetMagic)
+static uint32_t gWdtResetMagic;
+static Watchdog_Handle gWdt;
+
 uint8_t wakeUpReason = WAKEUP_REASON_FIRSTBOOT;
 int8_t  temperature;
 uint16_t  batteryVoltage;
@@ -35,6 +50,8 @@ uint8_t gTempBuf[TEMP_BUF_SIZE];
 static void InitSN(void);
 static uint8_t channelSelect(uint8_t rounds);
 static void GetTempAndBattV(void);
+static void WdtInit(void);
+static void SleepMs(uint32_t Ms);
 
 // AvailDataInfo.nextCheckIn: minutes, or seconds in the low 15 bits when
 // bit 15 is set
@@ -48,9 +65,21 @@ static uint32_t ApSleepMs(uint16_t NextCheckIn)
 
 int main(void)
 {
+   bool bSpecialShown = false;   // a preloaded AP lost / no AP screen is up
+
    Board_initGeneral();
    NoRTOS_start();
    InitLogging();
+   WdtInit();
+#ifdef WDT_TEST
+// Hang once: the watchdog should reset us within 2 s, and the next boot
+// checks in with WAKEUP_REASON_WDT_RESET (the AP logs it)
+   if(wakeUpReason != WAKEUP_REASON_WDT_RESET) {
+      ALOG("WDT_TEST: hanging\n");
+      wdtSet(2000);
+      while(true);
+   }
+#endif
    ALOG(BOARD_NAME " OEPL Ver %d compiled " __DATE__ " " __TIME__ "\n",FW_VERSION);
 
    InitSN();
@@ -64,12 +93,13 @@ int main(void)
 
    if(currentChannel) {
       ALOG("AP Found\n");
-      doSleep(5000UL);
+      SleepMs(5000UL);
    }
    else {
       ALOG("No AP found\n");
       noApShown = true;
-      doSleep(120000UL);
+      bSpecialShown = drawSpecialImage(CUSTOM_IMAGE_NOAPFOUND);
+      SleepMs(120000UL);
    }
 
    while(1) {
@@ -94,8 +124,11 @@ int main(void)
             }
             else {
                LOG("No data transfer\n");
-               wakeUpReason = WAKEUP_REASON_TIMED;
             }
+         // The AP has heard the boot / watchdog reason now. Still sent with
+         // the next check-in, it made the AP log "Booting" again, clear the
+         // image hash and re-render the content right after a transfer.
+            wakeUpReason = WAKEUP_REASON_TIMED;
          }
 
          uint16_t nextCheckin = getNextSleep();
@@ -106,26 +139,35 @@ int main(void)
       // Sleep what the AP said: it models our sleep from what it offered
       // and holds new content until our expected check-in is near.
          if(nextCheckInFromAP) {
-            doSleep(ApSleepMs(nextCheckInFromAP));
+            SleepMs(ApSleepMs(nextCheckInFromAP));
          }
          else {
-            doSleep(nextCheckin * 1000UL);
+            SleepMs(nextCheckin * 1000UL);
          }
       }
       else {
+         wdt60s();   // a scan of all 12 channels takes ~6 s
          currentChannel = channelSelect(1);
          if(!currentChannel) {
-            wdt60s();
-            noApShown = true;
-            doSleep(15 * 60 * 1000UL);
+            if(!noApShown) {
+               noApShown = true;
+               ALOG("AP lost\n");
+               bSpecialShown = drawSpecialImage(CUSTOM_IMAGE_LOST_CONNECTION);
+            }
+            SleepMs(15 * 60 * 1000UL);
          }
          else {
             noApShown = false;
             ALOG("AP Found\n");
+            if(bSpecialShown) {
+            // back from the AP lost / no AP screen
+               drawCurrentImage();
+               bSpecialShown = false;
+            }
             scanAttempts = 0;
             wakeUpReason = WAKEUP_REASON_NETWORK_SCAN;
             initPowerSaving(INTERVAL_BASE);
-            doSleep(40 * 1000UL);
+            SleepMs(40 * 1000UL);
          }
       }
    }
@@ -231,18 +273,104 @@ static uint8_t channelSelect(uint8_t rounds)
    return BestChannel;
 }
 
+// DATATYPE_COMMAND_DATA from the AP (XferComplete already sent)
+void executeCommand(uint8_t Cmd)
+{
+   switch(Cmd) {
+      case CMD_DO_REBOOT:
+         ALOG("CMD reboot\n");
+         SysCtrlSystemReset();
+         break;
+
+      case CMD_DO_SCAN:
+         ALOG("CMD scan\n");
+         currentChannel = 0;
+         break;
+
+      case CMD_DO_DEEPSLEEP:
+      // Until the batteries come out: no wake source is configured
+         ALOG("CMD deep sleep\n");
+         while(true) {
+            SleepMs(SLEEP_CHUNK_MS);
+         }
+
+      case CMD_ERASE_EEPROM_IMAGES:
+         ALOG("CMD erase images\n");
+         eraseImageSlots();
+         break;
+
+      case CMD_DO_RESET_SETTINGS:   // no settings yet
+      default:
+         ALOG("CMD 0x%x ignored\n",Cmd);
+         break;
+   }
+}
+
 // AP lost / found indication: not implemented yet (README UI to-do)
 void drawOnOffline(uint8_t state)
 {
    LOG("State %d\n",state);
 }
 
+// Watchdog NMI (first timeout): reset now instead of on the second timeout,
+// so a period means what it says
+static void WdtNmi(uintptr_t Arg)
+{
+   gWdtResetMagic = WDT_RESET_MAGIC;
+   SysCtrlSystemReset();
+}
+
+static void WdtInit(void)
+{
+   Watchdog_Params Params;
+
+   if(gWdtResetMagic == WDT_RESET_MAGIC) {
+      wakeUpReason = WAKEUP_REASON_WDT_RESET;
+      ELOG("Watchdog reset\n");
+   }
+   gWdtResetMagic = 0;
+
+   Watchdog_init();
+   Watchdog_Params_init(&Params);
+   Params.callbackFxn = WdtNmi;
+   Params.resetMode = Watchdog_RESET_ON;
+   Params.debugStallMode = Watchdog_DEBUG_STALL_ON;  // JTAG halts don't trip it
+   gWdt = Watchdog_open(Board_WATCHDOG0,&Params);
+   if(gWdt == NULL) {
+      ELOG("Watchdog_open failed\n");
+   }
+   wdt60s();
+}
+
+// Restart the watchdog with a period of Ms (max 2863 s)
+void wdtSet(uint32_t Ms)
+{
+   if(gWdt != NULL) {
+      Watchdog_setReload(gWdt,Watchdog_convertMsToTicks(gWdt,Ms));
+      Watchdog_clear(gWdt);
+   }
+}
+
 void wdt10s(void)
 {
+   wdtSet(10000);
 }
 
 void wdt60s(void)
 {
+   wdtSet(60000);
+}
+
+static void SleepMs(uint32_t Ms)
+{
+   uint32_t Now;
+
+   while(Ms > 0) {
+      Now = Ms > SLEEP_CHUNK_MS ? SLEEP_CHUNK_MS : Ms;
+      wdtSet(Now + SLEEP_WDT_MARGIN_MS);
+      doSleep(Now);
+      Ms -= Now;
+   }
 }
 
 static void GetTempAndBattV(void)

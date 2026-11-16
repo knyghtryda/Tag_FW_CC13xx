@@ -58,10 +58,19 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       checkmark screen. BUSY found to be active-low; refresh takes ~52 s.
       EPD control lines now idle low at boot (were high: back-powering risk)
 - [x] Plane polarity (2026-11-16): B/W `1` = white; yellow `0` = yellow
-- [ ] Move the EPD to SSI1 9-bit hardware SPI (README to-do; stock does this)
-- [ ] Decode the script's temperature/segment table instead of starting at the
-      fixed offset 0x47
-- [ ] Battery voltage and temperature reporting
+- [x] EPD on SSI1 hardware SPI (2026-11-16, `EPD_HW_SPI`): driverlib SSI, 9-bit
+      frames, mode 0, 4 MHz (stock clock/mode not located, mode 0 inferred);
+      CS by hand. A 48000-byte plane takes ~185 ms. Run 4 (1 px lines,
+      checkerboards) checked on the webcam. SSI1 must be closed only once:
+      `EpdPower(false)` runs twice per draw, and the second close touched SSI1
+      with its clock off and hung the tag
+- [x] Temperature/segment table at 0x202A: not needed for this panel (RE
+      project epd.md, 2026-11-16). The waveform is in the controller's OTP and
+      the script enables its internal sensor (`TSE 41 00` at SPI 0x208E,
+      checked here), so the controller compensates; stock runs 0x2047→END at
+      every temperature, as we do. The table matters for external-LUT panels
+      [inference, well supported]
+- [x] Battery voltage and temperature reporting (AP shows 3273 mV, 19 °C)
 
 ### 3. OEPL
 
@@ -125,10 +134,48 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       until the expected check-in is < 5 min away; with the fixed loop it
       held run 2 for an hour. With AP "Shorten latency during config" on and
       the web UI open, the AP offers short sleeps
-- [ ] AP: `g5Compress()` takes the buffer size as `uint16_t`, so an 800×960
+- [x] Watchdog (2026-11-16): TI driver, reset on the first timeout (NMI
+      callback), debug stall on. `wdt10s`/`wdt60s`/`wdtSet()`; sleeps go in
+      ≤ 20 min chunks with their own period; each EPD busy wait sets 160 s.
+      The NMI leaves a `#pragma NOINIT` marker, so the next boot reports
+      WAKEUP_REASON_WDT_RESET (a watchdog reset is turned into a pin reset,
+      the reset source can't tell). Verified with a `WDT_TEST` build: the AP
+      logged "Watchdog reset". After a JTAG session the reset halts in the boot
+      ROM until a power cycle (bench only)
+- [x] XferComplete after the refresh (run 3, 09:58: acknowledged ~1 min after
+      the download, i.e. after the draw)
+- [x] TX power 10 dBm (`0x38D3`, the CC13x0 PA table entry; the stock PA
+      table at flash 0xF1A0 tops out there too). Was `0x3E92`, in no TI table
+- [x] Code size: Chroma74H builds with `--opt_level=2 --opt_for_speed=0
+      --printf_support=nofloat`: 52.5 KB → 43.7 KB. Run 3 drawn correctly with
+      it (bit-banged EPD SPI still fine). `Release` config removed
+- [x] Wake reason: TIMED after any AvailDataInfo, not only NOUPDATE (a
+      boot reason sent again after a transfer made the AP clear the hash and
+      re-render)
+- [~] AP commands (`OEPL_COMMANDS`): reboot, scan, deep sleep, erase images.
+      Reboot sent from the AP was acknowledged; a clean re-test after a power
+      cycle is pending
+- [~] Preloads / special images (`OEPL_PRELOADS`): header stores the argument,
+      downloads go to `xferImgSlot` and skip the displayed slot and stored
+      specials, a new special replaces the old one, the main loop draws the
+      NOAPFOUND / LOST_CONNECTION image and redraws the current one when the AP
+      is back. Builds; not tested on hardware (needs a preload from the AP)
+- [~] AP: `g5Compress()` takes the buffer size as `uint16_t`, so an 800×960
       two-plane frame (96000 bytes) wraps to 30464: images compressing above
       ~30 KB fail with `G5_DATA_OVERFLOW` and go out raw (96000 bytes, handled).
-      Fix in the AP (`uint32_t`) before relying on G5 for photos
+      Fixed on AP fork branch `fix/g5-compress-size` (e17e3931), not compiled
+      yet (local PlatformIO fails with CreateProcess errors)
+- [x] Upstream IDs: `CHROMA_74H 0x87` on shared-definitions branch
+      `chroma74h-hwid` (836000e, in `../Tag_FW_Chroma/shared`); tagtype on AP
+      fork branch `feat/chroma74h-tagtype` (be436cc1). Local only
+- [~] RE session answers (2026-11-16): temperature table not needed (above);
+      stock TX power defaults to the PA table's last entry 0x38D3 = ours; SSI1
+      uses 9-bit frames with CS on DIO2 by hand, clock and SPI mode not found
+      yet (mode 0 inferred); OTA stages at SPI 0xB000 and writes internal flash
+      through ROM driverlib, the validation / copy / power-loss design still
+      to trace (asked)
+- [ ] Screens (boot / no AP) built in, for tags without AP preloads
+- [ ] OTA (after the RE answer on the stock mechanism)
 
 ## README to-do list (all CC13xx tags)
 
@@ -137,7 +184,7 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
 - [ ] UI: startup info screens and AP-lost screen
 - [ ] Status icons on normal screens (AP lost, low battery)
 - [ ] Static screens
-- [ ] EPD interface on SPI hardware instead of bit banging
+- [x] EPD interface on SPI hardware instead of bit banging (74H)
 - [ ] Replace the TI NVS driver with something simpler (probably needed for OTA)
 - [ ] OTA
 - [ ] Check Tx power

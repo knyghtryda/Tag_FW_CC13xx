@@ -23,6 +23,7 @@ extern uint8_t mSelfMac[8];
 
 void wdt10s(void);
 void wdt60s(void);
+void wdtSet(uint32_t Ms);   // watchdog period Ms, max 2863 s
 
 extern uint8_t wakeUpReason;
 extern int8_t  temperature;

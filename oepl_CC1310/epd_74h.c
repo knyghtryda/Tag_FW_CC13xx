@@ -2,7 +2,8 @@
  * E-paper driver for the Chroma 74H (800x480 BWY, CC1310).
  *
  * The panel has no D/C line: it takes 3-wire SPI with 9 bit frames, the D/C
- * flag first (0 = command, 1 = data), bit banged here as on the Aeon 74.
+ * flag first (0 = command, 1 = data). Sent on SSI1 as the stock firmware
+ * does (EPD_HW_SPI), or bit banged as on the Aeon 74.
  *
  * The command sequence is not hardcoded. Like the stock firmware, this
  * runs the factory command script stored in SPI flash at 0x2000 (magic
@@ -17,6 +18,12 @@
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/gpio.h)
 #include <ti/drivers/dpl/ClockP.h>
+#ifdef EPD_HW_SPI
+#include DeviceFamily_constructPath(driverlib/ssi.h)
+#include DeviceFamily_constructPath(driverlib/ioc.h)
+#include <ti/drivers/Power.h>
+#include <ti/drivers/power/PowerCC26XX.h>
+#endif
 
 #include "Board.h"
 #include "cc13xx.h"
@@ -24,6 +31,13 @@
 #include "epd_74h.h"
 #include "oepl-definitions.h"
 #include "logging.h"
+
+#ifdef OEPL_74H
+#include "main.h"
+#define EpdWdt(Ms)   wdtSet(Ms)
+#else
+#define EpdWdt(Ms)
+#endif
 
 #define EPD_PWR     CHROMA_EPD_PWR    // active low
 #define EPD_BUSY    CHROMA_EPD_BUSY   // LOW while busy (measured on hardware)
@@ -35,9 +49,11 @@
 
 #define SCRIPT_MAGIC       0xBEEFFACE
 #define SCRIPT_MAX_LEN     0x200
-// Offset of the first record in this tag's script. The header's segment /
-// temperature table (at +0x2A) isn't decoded yet, so all records from here
-// to the END record are run in order.
+// Offset of the first record in this tag's script. All records from here to
+// the END record are run in order, at any temperature: the panel's waveform
+// is in its OTP and the script enables its internal temperature sensor
+// (TSE 41 00), so the controller compensates. The temperature table at +0x2A
+// is for panels with external LUTs (RE project epd.md).
 #define SCRIPT_RECORDS     0x47
 
 // A full BWY refresh measured 51.8 s at room temperature (2026-11-16)
@@ -57,6 +73,7 @@ struct {
    uint16_t BusyMs[EPD_DIAG_WAITS];
    uint8_t  Record[EPD_DIAG_WAITS];    // script record type of the wait
    uint8_t  Result;           // 1 = ok, 2 = failed
+   uint16_t PlaneMs[2];       // upload time of the B/W and yellow plane
 } gEpdDiag;
 
 // Hidden register writes the stock firmware sends after every reset
@@ -66,6 +83,67 @@ static const uint8_t gHiddenRegs[] = {
    0x92,0x08, 0xa8,0x3a, 0x88,0x06, 0x68,0x10
 };
 
+#ifdef EPD_HW_SPI
+// SSI1, 9 bit frames, mode 0 (inferred: the stock SSI1 clock/mode setup isn't
+// located yet, RE project epd.md section 1). CS (DIO2) is driven by hand, as
+// stock does. CLK and SDI belong to SSI1 only while the panel is powered.
+#ifndef EPD_SPI_HZ
+#define EPD_SPI_HZ         4000000
+#endif
+
+// EpdPower(false) runs twice per draw (the script's panel off record, then
+// EpdDrawFromFlash()), and SSI1 registers fault once its clock is released:
+// open and close only once.
+static bool gSpiOpen;
+
+static void EpdSpiOpen(void)
+{
+   if(gSpiOpen) {
+      return;
+   }
+   gSpiOpen = true;
+   Power_setDependency(PowerCC26XX_PERIPH_SSI1);
+   IOCPortConfigureSet(EPD_CLK,IOC_PORT_MCU_SSI1_CLK,IOC_STD_OUTPUT);
+   IOCPortConfigureSet(EPD_SDI,IOC_PORT_MCU_SSI1_TX,IOC_STD_OUTPUT);
+   SSIDisable(SSI1_BASE);
+   SSIConfigSetExpClk(SSI1_BASE,48000000,SSI_FRF_MOTO_MODE_0,SSI_MODE_MASTER,
+                      EPD_SPI_HZ,9);
+   SSIEnable(SSI1_BASE);
+}
+
+static void EpdSpiClose(void)
+{
+   if(!gSpiOpen) {
+      return;
+   }
+   gSpiOpen = false;
+   while(SSIBusy(SSI1_BASE));
+   SSIDisable(SSI1_BASE);
+// back to GPIO (output enable is still set from the board init)
+   IOCPortConfigureSet(EPD_CLK,IOC_PORT_GPIO,IOC_STD_OUTPUT);
+   IOCPortConfigureSet(EPD_SDI,IOC_PORT_GPIO,IOC_STD_OUTPUT);
+   Power_releaseDependency(PowerCC26XX_PERIPH_SSI1);
+}
+
+static void EpdWrite9(uint16_t Data)
+{
+   uint32_t Dummy;
+
+   SSIDataPut(SSI1_BASE,Data);
+// Nothing is read: keep the RX FIFO from overflowing
+   while(SSIDataGetNonBlocking(SSI1_BASE,&Dummy));
+}
+
+// Raise CS after the last frame has left the shift register
+static void EpdCsHigh(void)
+{
+   uint32_t Dummy;
+
+   while(SSIBusy(SSI1_BASE));
+   while(SSIDataGetNonBlocking(SSI1_BASE,&Dummy));
+   GPIO_setDio(EPD_CS);
+}
+#else
 static void EpdWrite9(uint16_t Data)
 {
    uint16_t Mask = 0x100;
@@ -78,6 +156,9 @@ static void EpdWrite9(uint16_t Data)
    }
 }
 
+#define EpdCsHigh()  GPIO_setDio(EPD_CS)
+#endif
+
 static void EpdCmd(uint8_t Cmd,const uint8_t *pData,int Len)
 {
    GPIO_clearDio(EPD_CS);
@@ -85,7 +166,7 @@ static void EpdCmd(uint8_t Cmd,const uint8_t *pData,int Len)
    while(Len-- > 0) {
       EpdWrite9(0x100 | *pData++);
    }
-   GPIO_setDio(EPD_CS);
+   EpdCsHigh();
 }
 
 // Wait for BUSY to assert, then release. Returns true on timeout.
@@ -96,6 +177,7 @@ static bool EpdWaitBusy(uint8_t Record)
    bool bRet = false;
    int i = gEpdDiag.Magic & 0xff;
 
+   EpdWdt(BUSY_ASSERT_MS + REFRESH_FALLBACK_MS + BUSY_TIMEOUT_MS + 10000);
    while(!EpdBusy() && Asserted < BUSY_ASSERT_MS) {
       WaitMs(1);
       Asserted++;
@@ -138,8 +220,14 @@ static void EpdPower(bool bOn)
       GPIO_clearDio(EPD_PWR);    // power on
       WaitMs(25);
       GPIO_setDio(EPD_CS);
+#ifdef EPD_HW_SPI
+      EpdSpiOpen();
+#endif
    }
    else {
+#ifdef EPD_HW_SPI
+      EpdSpiClose();
+#endif
       GPIO_setDio(EPD_PWR);      // power off
       GPIO_clearDio(EPD_RST);
       GPIO_clearDio(EPD_CS);
@@ -171,6 +259,7 @@ static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr,uint8_t Invert,
    uint32_t Done;
    uint32_t Len;
    uint32_t i;
+   uint32_t Start = ClockP_getSystemTicks();
    bool bRet = false;
 
    GPIO_clearDio(EPD_CS);
@@ -192,7 +281,9 @@ static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr,uint8_t Invert,
          EpdWrite9(0x100 | (Buf[i] ^ Invert));
       }
    }
-   GPIO_setDio(EPD_CS);
+   EpdCsHigh();
+   gEpdDiag.PlaneMs[Cmd == 0x10 ? 0 : 1] =
+      (ClockP_getSystemTicks() - Start) * ClockP_tickPeriod / 1000;
    return bRet;
 }
 
@@ -284,7 +375,7 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
             for(i = 1; i < Arg; i++) {
                EpdWrite9(0x100 | Zero);
             }
-            GPIO_setDio(EPD_CS);
+            EpdCsHigh();
             p += 4;
             continue;
          }
