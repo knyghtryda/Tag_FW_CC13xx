@@ -53,11 +53,14 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       the other boot-time records), the temperature/segment table at SPI
       `0x202A`, SSI1 clock rate and SPI mode, standby entry path and per-pin
       sleep states
-- [ ] EPD driver: start from the Aeon's `write9bits()` (bit-bang, known working
-      9-bit framing) on the 74H pins, then the factory-script sequence; power
-      down with RST/CS low and PWR high. Move to SSI1 9-bit hardware SPI once it
-      works (README to-do; stock proves it works on this board). Confirm
-      yellow-plane polarity on hardware
+- [x] EPD driver, first light (2026-11-16): `oepl_CC1310/epd_74h.c` runs the
+      factory script from SPI flash with bit-banged 9-bit SPI and drew the stock
+      checkmark screen. BUSY found to be active-low; refresh takes ~52 s.
+      EPD control lines now idle low at boot (were high: back-powering risk)
+- [ ] Confirm yellow-plane polarity on hardware
+- [ ] Move the EPD to SSI1 9-bit hardware SPI (README to-do; stock does this)
+- [ ] Decode the script's temperature/segment table instead of starting at the
+      fixed offset 0x47
 - [ ] Battery voltage and temperature reporting
 
 ### 3. OEPL

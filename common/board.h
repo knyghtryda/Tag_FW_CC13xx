@@ -24,6 +24,37 @@
 #define SN_REV_CHAR                 'C'
 #endif
 
+#ifdef  CHROMA_74H
+// Chroma 74H(+): CC1310F64, 800x480 BWY panel, 1 MB Macronix SPI flash.
+// SPI flash 0x0000-0x2FFF holds the factory NVRAM (SN, panel serial,
+// resolution) and the panel command script: never erase or write it.
+#define BOARD_NAME                  "Chroma74H"
+#define FLASH_MX25V8006
+
+#define EEPROM_FACTORY_START        0x0
+#define EEPROM_FACTORY_LEN          0x3000
+#define EEPROM_PANEL_SCRIPT         0x2000
+
+#define EEPROM_SETTINGS_AREA_START  0x3000
+#define EEPROM_SETTINGS_AREA_LEN    EEPROM_ERZ_SECTOR_SZ
+
+#define EEPROM_OTA_START            (0x10000)
+#define EEPROM_OTA_LEN              (64*1024)
+
+// An 800x480 two plane image is 96000 bytes + header
+#define EEPROM_IMG_START            (0x20000)
+#define EEPROM_IMG_EACH             (0x18000)
+#define EEPROM_IMG_SECTORS          (EEPROM_IMG_EACH / EEPROM_ERZ_SECTOR_SZ)
+#define IMAGE_SLOTS                 ((EEPROM_SIZE - EEPROM_IMG_START)/EEPROM_IMG_EACH)
+
+// The SN is factory NVRAM record 0x80, not in internal flash as on the Aeon
+#define SN_LEN                      7
+#define SN_NVRAM_RECORD             0x80
+#define SN_CHAR1                    'M'
+#define SN_CHAR2                    'S'
+#define SN_REV_CHAR                 'C'
+#endif
+
 #ifdef  CC1310_128K
 #define BOARD_NAME                  "CC1310 128K"
 #define FLASH_MX25V1006

@@ -1,7 +1,10 @@
 # Command-line build of oepl_CC1310 with TI ARM-CGT, mirroring the CCS
 # project (.cproject). Runs in WSL/Linux:
 #
-#   make [CONFIG=Debug|Proxy|Release]   ->  build/<CONFIG>/oepl_CC1310.out + .map
+#   make [CONFIG=Debug|Proxy|EpdTest|Release]   ->  build/<CONFIG>/oepl_CC1310.out + .map
+#
+# EpdTest is a Chroma 74H bring-up build: it draws the stock screen stored in
+# SPI flash at 0x15000 using the panel's factory script, then idles.
 #   make clean [CONFIG=...]
 #
 # SDK and compiler locations can be overridden on the command line.
@@ -26,6 +29,9 @@ DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCC1310_128K -D_CUSTOM_IO_=oepl_io.inl
 else ifeq ($(CONFIG),Proxy)
 DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCC1310_128K -D_CUSTOM_IO_=oepl_io.inl \
            -DCHROMA_PROXY
+else ifeq ($(CONFIG),EpdTest)
+DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -D_CUSTOM_IO_=oepl_io.inl \
+           -DEPD_TEST
 else ifeq ($(CONFIG),Release)
 COMMON_EXCLUDE =
 else

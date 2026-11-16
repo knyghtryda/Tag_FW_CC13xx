@@ -94,6 +94,11 @@ which Debug/Proxy set: in `common/board.h` that selects the 128 KB **SPI flash**
 went to 0x1FFA8 — nonexistent on an F64 — so earlier F64 builds can only have
 booted on the stock CCFG left in the last sector.
 
+A `dslite --mode memory` read of a running tag returns live RAM (useful for
+diagnostics, e.g. `gEpdDiag` in `epd_74h.c`; find the address in the
+`.map`), but **the firmware restarts afterwards** — seen as the EPD test
+redrawing after each read.
+
 Errors -242 / -2131 / -275 are a marginal TMS/TCK connection or the wrong scan
 format: re-check the two JTAG wires, then drop TCLK to 100 kHz. On the 74H+
 the back-side pads are unlabelled, and **the OEPL wiki's TMS/TCK assignment
@@ -168,7 +173,13 @@ prints all of this.
     Aeon's `write9bits()`. CS (DIO2) driven by hand. Clock rate and SPI mode
     not yet found (mode 0 assumed).
   - **EPD_PWR (DIO0) is active-low: HIGH = off** ✓ (power-down sets DIO0 via
-    DOUTSET). RST (DIO5) active-low; BUSY (DIO1) high while busy.
+    DOUTSET). RST (DIO5) active-low. **BUSY (DIO1) is LOW while busy** —
+    measured on hardware 2026-11-16; the RE notes' "active-high" is wrong.
+    BUSY asserts within 1 ms of the command; waits after PON ~60 ms, after
+    POF ~30 ms, and the **full refresh ~52 s** (room temperature).
+  - **First light 2026-11-16:** `oepl_CC1310/epd_74h.c` (`make` config
+    `EpdTest`) drew the stock checkmark screen from SPI flash `0x15000` by
+    running the factory script. Bit-banged 9-bit SPI works.
   - Power-up: RST low, PWR on, 25 ms, CS high, reset pulse (2 ms low, 5 ms
     settle), then the eight `F8` hidden-register writes (table at `0xBB30` ✓,
     same values as the script) and BTST `57 2B 38` (`0xBB40` ✓).

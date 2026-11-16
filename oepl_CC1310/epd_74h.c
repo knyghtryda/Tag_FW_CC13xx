@@ -1,0 +1,337 @@
+/*
+ * E-paper driver for the Chroma 74H (800x480 BWY, CC1310).
+ *
+ * The panel has no D/C line: it takes 3-wire SPI with 9 bit frames, the D/C
+ * flag first (0 = command, 1 = data), bit banged here as on the Aeon 74.
+ *
+ * The command sequence is not hardcoded. Like the stock firmware, this
+ * runs the factory command script stored in SPI flash at 0x2000 (magic
+ * 0xBEEFFACE, format 04 03). Record types, power/reset timing and the
+ * hidden register table are from the stock firmware, see
+ * ../chroma74h_reverse_engineering/docs/epd.md and CLAUDE.md.
+ */
+#include "board.h"
+
+#ifdef CHROMA_74H
+#include <string.h>
+#include <ti/devices/DeviceFamily.h>
+#include DeviceFamily_constructPath(driverlib/gpio.h)
+#include <ti/drivers/dpl/ClockP.h>
+
+#include "Board.h"
+#include "cc13xx.h"
+#include "eeprom.h"
+#include "epd_74h.h"
+#include "logging.h"
+
+#define EPD_PWR     CHROMA_EPD_PWR    // active low
+#define EPD_BUSY    CHROMA_EPD_BUSY   // LOW while busy (measured on hardware)
+#define EpdBusy()   (GPIO_readDio(EPD_BUSY) == 0)
+#define EPD_CS      CHROMA_EPD_CS
+#define EPD_CLK     CHROMA_EPD_CLK
+#define EPD_SDI     CHROMA_EPD_SDI
+#define EPD_RST     CHROMA_EPD_RST
+
+#define SCRIPT_MAGIC       0xBEEFFACE
+#define SCRIPT_MAX_LEN     0x200
+// Offset of the first record in this tag's script. The header's segment /
+// temperature table (at +0x2A) isn't decoded yet, so all records from here
+// to the END record are run in order.
+#define SCRIPT_RECORDS     0x47
+
+// A full BWY refresh measured 51.8 s at room temperature (2026-11-16)
+#define BUSY_TIMEOUT_MS    120000
+// BUSY asserts a short time after the command that starts an operation; the
+// stock firmware waits for the edge, not the level.
+#define BUSY_ASSERT_MS     500
+// Used if BUSY never rises on the refresh wait, so a refresh isn't cut off
+#define REFRESH_FALLBACK_MS 30000
+#define CHUNK_SIZE         240
+
+// Bring-up diagnostics, readable over JTAG (see oepl_CC1310.map for the address)
+#define EPD_DIAG_WAITS     8
+struct {
+   uint32_t Magic;            // 0xEDD1A600 + number of waits recorded
+   uint16_t AssertMs[EPD_DIAG_WAITS];  // 0xffff: BUSY never asserted
+   uint16_t BusyMs[EPD_DIAG_WAITS];
+   uint8_t  Record[EPD_DIAG_WAITS];    // script record type of the wait
+   uint8_t  Result;           // 1 = ok, 2 = failed
+} gEpdDiag;
+
+// Hidden register writes the stock firmware sends after every reset
+// (stock table at 0xBB30; the factory script repeats them).
+static const uint8_t gHiddenRegs[] = {
+   0x7c,0x00, 0x60,0xa5, 0x93,0x18, 0x73,0x07,
+   0x92,0x08, 0xa8,0x3a, 0x88,0x06, 0x68,0x10
+};
+
+static void EpdWrite9(uint16_t Data)
+{
+   uint16_t Mask = 0x100;
+
+   while(Mask != 0) {
+      GPIO_writeDio(EPD_SDI,(Data & Mask) ? 1 : 0);
+      GPIO_setDio(EPD_CLK);
+      GPIO_clearDio(EPD_CLK);
+      Mask >>= 1;
+   }
+}
+
+static void EpdCmd(uint8_t Cmd,const uint8_t *pData,int Len)
+{
+   GPIO_clearDio(EPD_CS);
+   EpdWrite9(Cmd);
+   while(Len-- > 0) {
+      EpdWrite9(0x100 | *pData++);
+   }
+   GPIO_setDio(EPD_CS);
+}
+
+// Wait for BUSY to assert, then release. Returns true on timeout.
+static bool EpdWaitBusy(uint8_t Record)
+{
+   uint32_t Asserted = 0;
+   uint32_t Waited = 0;
+   bool bRet = false;
+   int i = gEpdDiag.Magic & 0xff;
+
+   while(!EpdBusy() && Asserted < BUSY_ASSERT_MS) {
+      WaitMs(1);
+      Asserted++;
+   }
+
+   if(Asserted >= BUSY_ASSERT_MS) {
+      ELOG("BUSY never asserted\n");
+      if(Record == 5) {
+      // the refresh wait: don't cut the refresh short
+         WaitMs(REFRESH_FALLBACK_MS);
+      }
+   }
+   else {
+      while(EpdBusy()) {
+         if(Waited >= BUSY_TIMEOUT_MS) {
+            ELOG("BUSY timeout\n");
+            bRet = true;
+            break;
+         }
+         WaitMs(10);
+         Waited += 10;
+      }
+   }
+   ALOG("busy: asserted after %u ms, %u ms busy\n",Asserted,Waited);
+
+   if(i < EPD_DIAG_WAITS) {
+      gEpdDiag.AssertMs[i] = Asserted >= BUSY_ASSERT_MS ? 0xffff : Asserted;
+      gEpdDiag.BusyMs[i] = Waited;
+      gEpdDiag.Record[i] = Record;
+      gEpdDiag.Magic++;
+   }
+   return bRet;
+}
+
+static void EpdPower(bool bOn)
+{
+   if(bOn) {
+      WaitMs(5);
+      GPIO_clearDio(EPD_RST);
+      GPIO_clearDio(EPD_PWR);    // power on
+      WaitMs(25);
+      GPIO_setDio(EPD_CS);
+   }
+   else {
+      GPIO_setDio(EPD_PWR);      // power off
+      GPIO_clearDio(EPD_RST);
+      GPIO_clearDio(EPD_CS);
+      GPIO_clearDio(EPD_CLK);
+      GPIO_clearDio(EPD_SDI);
+   }
+}
+
+static void EpdReset(void)
+{
+   int i;
+
+   GPIO_clearDio(EPD_RST);
+   WaitMs(2);
+   GPIO_setDio(EPD_RST);
+   GPIO_setDio(EPD_CS);
+   WaitMs(5);
+   for(i = 0; i < sizeof(gHiddenRegs); i += 2) {
+      EpdCmd(0xf8,&gHiddenRegs[i],2);
+   }
+}
+
+static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr)
+{
+   uint8_t Buf[CHUNK_SIZE];
+   uint32_t Done;
+   uint32_t Len;
+   uint32_t i;
+   bool bRet = false;
+
+   GPIO_clearDio(EPD_CS);
+   EpdWrite9(Cmd);
+   for(Done = 0; Done < EPD_PLANE_SIZE; Done += Len) {
+      Len = EPD_PLANE_SIZE - Done;
+      if(Len > sizeof(Buf)) {
+         Len = sizeof(Buf);
+      }
+      if(eepromRead(Adr + Done,Buf,Len)) {
+         ELOG("flash read failed @ 0x%x\n",Adr + Done);
+         bRet = true;
+         break;
+      }
+      for(i = 0; i < Len; i++) {
+         EpdWrite9(0x100 | Buf[i]);
+      }
+   }
+   GPIO_setDio(EPD_CS);
+   return bRet;
+}
+
+// Record 7: resolution, then the plane(s) selected by record bytes 1 and 2
+static bool EpdImage(const uint8_t *pRec,uint32_t PlaneAdr)
+{
+   const uint8_t Tres[] = {
+      EPD_WIDTH >> 8, EPD_WIDTH & 0xff, EPD_HEIGHT >> 8, EPD_HEIGHT & 0xff
+   };
+   bool bRet = false;
+
+   EpdCmd(0x61,Tres,sizeof(Tres));
+   // No VDCS (0x82): stock only sends it when the NVRAM holds a VCOM value,
+   // and this tag's NVRAM has none.
+   if(pRec[2] == 0) {
+      bRet = EpdSendPlane(0x10,PlaneAdr);
+      if(!bRet) {
+         bRet = EpdSendPlane(0x13,PlaneAdr + EPD_PLANE_SIZE);
+      }
+   }
+   else if(pRec[2] >= 2) {
+      if(pRec[1] == 2 || pRec[1] == 5) {
+         bRet = EpdSendPlane(0x10,PlaneAdr);
+      }
+      else {
+         bRet = EpdSendPlane(0x13,PlaneAdr + EPD_PLANE_SIZE);
+      }
+   }
+   return bRet;
+}
+
+static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd,uint32_t PlaneAdr)
+{
+   uint16_t Arg;
+   bool bRet = false;
+
+   while(!bRet) {
+      if(p + 3 > pEnd) {
+         ELOG("script overrun\n");
+         return true;
+      }
+      Arg = p[1] | (p[2] << 8);
+      switch(p[0]) {
+         case 0:     // end
+            return false;
+
+         case 1:     // command + (len - 1) data bytes
+            if(Arg == 0 || p + 3 + Arg > pEnd) {
+               ELOG("bad command record\n");
+               return true;
+            }
+            EpdCmd(p[3],&p[4],Arg - 1);
+            p += 3 + Arg;
+            continue;
+
+         case 2:     // delay in ms
+            WaitMs(Arg);
+            break;
+
+         case 3:     // wait while busy
+         case 5:     // (5 follows the refresh command)
+            bRet = EpdWaitBusy(p[0]);
+            break;
+
+         case 4: {   // command followed by (len - 1) zero bytes
+            const uint8_t Zero = 0;
+            int i;
+
+            GPIO_clearDio(EPD_CS);
+            EpdWrite9(p[3]);
+            for(i = 1; i < Arg; i++) {
+               EpdWrite9(0x100 | Zero);
+            }
+            GPIO_setDio(EPD_CS);
+            p += 4;
+            continue;
+         }
+
+         case 6:     // reset + hidden registers
+            EpdReset();
+            break;
+
+         case 7:     // image
+            bRet = EpdImage(p,PlaneAdr);
+            break;
+
+         case 9:     // panel power, byte 1 bit 0 = on
+            EpdPower(p[1] & 1);
+            break;
+
+         default:    // 8 (status read), 0xa, 0xb: not used by this script
+            ELOG("unsupported record 0x%x\n",p[0]);
+            return true;
+      }
+      p += 3;
+   }
+   return bRet;
+}
+
+bool EpdDrawFromFlash(uint32_t PlaneAdr)
+{
+   static uint8_t pScript[SCRIPT_MAX_LEN];   // the heap is only 256 bytes
+   uint32_t Magic;
+   bool bRet = true;
+
+   memset(&gEpdDiag,0,sizeof(gEpdDiag));
+   gEpdDiag.Magic = 0xEDD1A600;
+   do {
+      if(eepromRead(EEPROM_PANEL_SCRIPT,pScript,SCRIPT_MAX_LEN)) {
+         ELOG("script read failed\n");
+         break;
+      }
+      memcpy(&Magic,pScript,sizeof(Magic));
+      if(Magic != SCRIPT_MAGIC || pScript[4] != 4 || pScript[5] != 3) {
+         ELOG("no panel script (magic 0x%x, format %d %d)\n",Magic,
+              pScript[4],pScript[5]);
+         break;
+      }
+      ALOG("running panel script\n");
+      bRet = EpdRunScript(&pScript[SCRIPT_RECORDS],&pScript[SCRIPT_MAX_LEN],
+                          PlaneAdr);
+   } while(false);
+
+   EpdPower(false);
+   gEpdDiag.Result = bRet ? 2 : 1;
+   return bRet;
+}
+
+#ifdef EPD_TEST
+// The stock screen slots are still in SPI flash: draw slot 0 (0x15000,
+// 0x20 byte header then the two planes).
+#ifndef EPD_TEST_SLOT
+#define EPD_TEST_SLOT   0x15000
+#endif
+
+void EpdTest()
+{
+   bool bErr;
+
+   ALOG("EPD test: drawing the image at 0x%x\n",EPD_TEST_SLOT);
+   bErr = EpdDrawFromFlash(EPD_TEST_SLOT + 0x20);
+   eepromPower(false);
+   ALOG("EPD test %s\n",bErr ? "FAILED" : "done");
+   while(true) {
+      WaitMs(1000);
+   }
+}
+#endif   // EPD_TEST
+#endif   // CHROMA_74H
