@@ -57,7 +57,7 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       factory script from SPI flash with bit-banged 9-bit SPI and drew the stock
       checkmark screen. BUSY found to be active-low; refresh takes ~52 s.
       EPD control lines now idle low at boot (were high: back-powering risk)
-- [ ] Confirm yellow-plane polarity on hardware
+- [x] Plane polarity (2026-11-16): B/W `1` = white; yellow `0` = yellow
 - [ ] Move the EPD to SSI1 9-bit hardware SPI (README to-do; stock does this)
 - [ ] Decode the script's temperature/segment table instead of starting at the
       fixed offset 0x47

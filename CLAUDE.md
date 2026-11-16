@@ -180,6 +180,10 @@ prints all of this.
   - **First light 2026-11-16:** `oepl_CC1310/epd_74h.c` (`make` config
     `EpdTest`) drew the stock checkmark screen from SPI flash `0x15000` by
     running the factory script. Bit-banged 9-bit SPI works.
+  - **Plane polarity** (same test: a yellow plane of all `0xFF` showed no
+    yellow; the B/W plane's `0xFF` background showed white): B/W plane
+    (`0x10`) `1` = white, `0` = black; yellow plane (`0x13`) `1` = no
+    yellow, `0` = yellow.
   - Power-up: RST low, PWR on, 25 ms, CS high, reset pulse (2 ms low, 5 ms
     settle), then the eight `F8` hidden-register writes (table at `0xBB30` ✓,
     same values as the script) and BTST `57 2B 38` (`0xBB40` ✓).
