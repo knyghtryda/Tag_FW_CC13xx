@@ -198,6 +198,15 @@ prints all of this.
 - **SPI flash power** (✓ `0xB9` at `0xE49C`, `0xAB` at `0xE5F6`): stock wakes
   the flash with `0xAB` before every access and puts it back in deep
   power-down with `0xB9` after, with SSI0 power-gated in between.
+- **Standby pin states** (RE project `firmware.md` §8.3.1): stock never
+  reconfigures pins for sleep; each keeps its boot config. EPD_PWR high (off),
+  EPD CS/CLK/SDI/RST low, BUSY input; UART RX pull-down, TX high; flash
+  MOSI/CLK low, MISO pull-up, CS high (flash in deep power-down); **every
+  unused DIO is an input with pull-down**. Nothing floats — the target for
+  our sleep current.
+- **CCFG:** stock has the internal DC/DC converter **off** (`MODE_CONF`
+  bits 27:26 set); `oepl_CC1310/ccfg.c` overrides TI's default to match, so
+  our `.ccfg` is byte-identical to stock.
 
 ## Chroma 74H stock firmware (internal flash, 2026-11-15)
 

@@ -30,10 +30,10 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       the EasyLink + display libraries cost before the OEPL code goes in. The
       OEPL build won't need EasyLink (it uses the RF driver directly)
 - [ ] Release configuration is stale (no board define); fix or drop it
-- [ ] **Before the first flash:** compare the CCFG our build emits (driverlib
-      default via `oepl_CC1310/ccfg.c`) with the stock one; CPU DAP must stay
-      enabled (`CCFG_TAP_DAP_0` CPU byte = 0xC5), and check `MODE_CONF` /
-      `MODE_CONF_1` (oscillator, DC-DC) against stock
+- [x] CCFG matches stock byte for byte (2026-11-15). TI's default differed only
+      in `MODE_CONF`: it enabled the DC/DC converter, which stock has off
+      (no inductor on the board, presumably). `oepl_CC1310/ccfg.c` now
+      overrides `DCDC_ACTIVE`/`DCDC_RECHARGE`. CPU DAP stays enabled
 - [ ] RAM budget: an 800×480 two-plane frame is 96 KB against 16 KB of RAM, so
       the display path must stream from SPI flash (as the CC2630 port does)
 - [x] Pin map recovered from the stock firmware by `../chroma74h_reverse_engineering`
