@@ -116,8 +116,11 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       decoded rows were ANDed onto old data. Fixed (busy wait before each
       WREN). Run 2 (09:28, hash `10f73018ed450883`): borders, a 2 px black
       and a 4 px yellow line under the top border all correct (user)
-- [ ] Main loop: sleep what the AP's `AvailDataInfo.nextCheckIn` says (as
-      `ChromaAeon74/main.c`), not a fixed 40 s capped by DEBUG_MAX_SLEEP. The
+- [~] Main loop: sleep what the AP's `AvailDataInfo.nextCheckIn` says, not a
+      fixed 40 s capped by DEBUG_MAX_SLEEP (done in `oepl_74h.c`, DEBUG_MAX_SLEEP
+      dropped; 2026-11-16 09:31 the AP offered 59 min and the tag stopped
+      checking in, as expected; confirm the check-in near 10:31).
+      `ChromaAeon74/main.c` still has this commented out. The
       AP models the tag's sleep from what it offered and holds new content
       until the expected check-in is < 5 min away; with the fixed loop it
       held run 2 for an hour. With AP "Shorten latency during config" on and

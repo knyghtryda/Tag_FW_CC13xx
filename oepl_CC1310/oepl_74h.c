@@ -36,6 +36,16 @@ static void InitSN(void);
 static uint8_t channelSelect(uint8_t rounds);
 static void GetTempAndBattV(void);
 
+// AvailDataInfo.nextCheckIn: minutes, or seconds in the low 15 bits when
+// bit 15 is set
+static uint32_t ApSleepMs(uint16_t NextCheckIn)
+{
+   if(NextCheckIn & 0x8000) {
+      return (NextCheckIn & 0x7fff) * 1000UL;
+   }
+   return NextCheckIn * 60000UL;
+}
+
 int main(void)
 {
    Board_initGeneral();
@@ -93,7 +103,14 @@ int main(void)
          if(nextCheckin == INTERVAL_AT_MAX_ATTEMPTS) {
             currentChannel = 0;
          }
-         doSleep(40 * 1000UL);
+      // Sleep what the AP said: it models our sleep from what it offered
+      // and holds new content until our expected check-in is near.
+         if(nextCheckInFromAP) {
+            doSleep(ApSleepMs(nextCheckInFromAP));
+         }
+         else {
+            doSleep(nextCheckin * 1000UL);
+         }
       }
       else {
          currentChannel = channelSelect(1);

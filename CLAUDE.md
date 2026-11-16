@@ -283,9 +283,12 @@ CCFG.
   `CHROMA_74_BWY`, the 640×384 CC1110 Chroma74 BWY (user's AP fork
   `../OpenEPaperLink-chroma74-bwy`, shared branch `chroma74-bwy-hwid`). Not
   0x81 `CHROMA_AEON_74` ("also Chroma 74H+"): that one is BWR.
-- AP tagtype `87.json` (in the AP fork, uploaded to the AP via the file
-  editor `/edit`; `/littlefs_put` failed with "Disk full?"):
-  `g5_compression` "3" = FW_VERSION 3. No zlib (RAM).
+- AP tagtype `87.json`: its own branch `feat/chroma74h-tagtype` (from
+  upstream master) in `../OpenEPaperLink-chroma74-bwy`, separate from the
+  0x86 work (0x86 re-identifies an already released tag, 0x87 is a new
+  device). Uploaded to the AP via the file editor `/edit` (`/littlefs_put`
+  failed with "Disk full?"). `g5_compression` "3" = FW_VERSION 3. No zlib
+  (RAM).
 - G5 decoder: `g5/` (from Tag_FW_Chroma, BSL 1.1 like `bb_epaper`), decoded
   slot to slot in SPI flash, enabled by `G5_SUPPORT` in `common/board.h`. The
   AP's `g5Compress()` takes a 16-bit size, so a frame compressing above ~30 KB

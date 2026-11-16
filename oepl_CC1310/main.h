@@ -6,8 +6,10 @@
 #include <stdint.h>
 #include "cc13xx.h"
 
-// Cap every sleep while bringing the port up, so the tag checks in often
-#define DEBUG_MAX_SLEEP    5000
+// No DEBUG_MAX_SLEEP (powermgt.c caps every sleep with it): the AP holds new
+// content until the check-in it expects from the sleep it offered, so a tag
+// that wakes up early gains nothing. For fast turnaround use the AP's
+// "Shorten latency during config" with its web UI open.
 
 // Reported to the AP, which picks the image format from it: G5 once the
 // version reaches the tagtype's "g5_compression" value (hex), zlib once it
