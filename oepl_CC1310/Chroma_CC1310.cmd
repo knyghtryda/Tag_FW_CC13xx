@@ -52,10 +52,18 @@
 
 /* The starting address of the application.  Normally the interrupt vectors  */
 /* must be located at the beginning of the application.                      */
+/* The Chroma tags use a CC1310F64. For a CC1310F128 tag pass                */
+/* --define=CC1310F128 to the linker. (Not CC1310_128K: that compiler define */
+/* selects a 128K *SPI flash* in common/board.h.)                            */
 #define FLASH_BASE              0x0
-#define FLASH_SIZE              0x20000
 #define RAM_BASE                0x20000000
+#ifdef CC1310F128
+#define FLASH_SIZE              0x20000
 #define RAM_SIZE                0x5000
+#else
+#define FLASH_SIZE              0x10000
+#define RAM_SIZE                0x4000
+#endif
 
 /* System memory map */
 
