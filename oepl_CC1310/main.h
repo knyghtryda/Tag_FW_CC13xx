@@ -15,7 +15,11 @@
 // version reaches the tagtype's "g5_compression" value (hex), zlib once it
 // reaches "zlib_compression". The 74H tagtype (87.json) has g5_compression
 // "3" and no zlib (doesn't fit in RAM yet). 2 = raw images only, 3 = G5.
-#define FW_VERSION         0x0003
+// 4 = OTA through bootloader_CC1310. Can be overridden for OTA tests
+// (EXTRA_DEFINES=-DFW_VERSION=...).
+#ifndef FW_VERSION
+#define FW_VERSION         0x0004
+#endif
 
 #define TEMP_BUF_SIZE      256
 extern uint8_t gTempBuf[TEMP_BUF_SIZE];

@@ -184,7 +184,16 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       image when the AP is lost and no preload exists
 - [x] HardFault handler: records CFSR/HFSR/BFAR/stack in `gFault` (NOINIT),
       resets, next boot reports a watchdog reset
-- [ ] OTA (after the RE answer on the stock mechanism)
+- [x] OTA through a bootloader (2026-11-16): `bootloader_CC1310` (3.7 KB in
+      sector 0 + the stock-identical CCFG) and the app linked at 0x1000
+      (`--define=OEPL_APP`). The app checks the downloaded file (magic, hwType,
+      header and image CRC32, vectors, version != running, battery >= 2400 mV),
+      writes an apply record in SPI flash (0x1F000, armed last) and resets;
+      the bootloader re-checks the CRC, copies sectors 1..14 with read-back and
+      retries, verifies, marks the record done and jumps. A reset mid-copy
+      repeats it. Verified: v3 (JTAG, `chroma74h_full`) -> v4 by OTA from the AP
+      (content mode 5); internal flash read back equals the v4 image, AP shows
+      ver 4. Stock has no internal-flash self-update (RE project firmware.md 7)
 
 ## README to-do list (all CC13xx tags)
 
@@ -195,7 +204,7 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
 - [ ] Static screens
 - [x] EPD interface on SPI hardware instead of bit banging (74H)
 - [ ] Replace the TI NVS driver with something simpler (probably needed for OTA)
-- [ ] OTA
+- [x] OTA (74H, bootloader)
 - [ ] Check Tx power
 - [ ] Audit current consumption (Aeon 74 sleeps at 4 mA). Start with pin
       states during sleep; see CLAUDE.md, "CC13xx/CC26xx traps"

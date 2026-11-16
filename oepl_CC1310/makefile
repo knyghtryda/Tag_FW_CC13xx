@@ -42,7 +42,9 @@ CFLAGS_EXTRA = --c99 --printf_support=nofloat
 OPT ?= --opt_level=2 --opt_for_speed=0
 COMMON_EXCLUDE = proxy.c CobsFraming.c
 LOCAL_EXCLUDE = oepl_CC1310.c easylink/EasyLink_nortos.c easylink/easylink_config.c \
-                smartrf_settings/smartrf_settings_predefined.c
+                smartrf_settings/smartrf_settings_predefined.c ccfg.c
+# Linked at 0x1000 behind ../bootloader_CC1310, which carries the CCFG
+LINK_DEFINES = --define=OEPL_APP
 # G5 image decoder (G5_SUPPORT in common/board.h)
 EXTRA_SOURCES = ../g5/g5.c
 else
@@ -85,7 +87,7 @@ $(BUILD)/%.obj: %.c | $(BUILD)
 
 $(BUILD)/$(NAME).out: $(OBJECTS) Chroma_CC1310.cmd
 	@echo "LINK $@"
-	@$(CC) $(CFLAGS) -z $(OBJECTS) Chroma_CC1310.cmd $(LFLAGS) -o $@
+	@$(CC) $(CFLAGS) -z $(LINK_DEFINES) $(OBJECTS) Chroma_CC1310.cmd $(LFLAGS) -o $@
 
 $(BUILD):
 	@mkdir -p $@

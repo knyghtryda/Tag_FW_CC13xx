@@ -43,6 +43,8 @@
 // Preloaded images (AP lost / no AP screens etc.), kept out of the slot
 // rotation; the image header records the AvailDataInfo argument
 #define OEPL_PRELOADS
+// OTA through bootloader_CC1310 (oepl_CC1310/ota_74h.c, ota_74h.h)
+#define OEPL_OTA
 
 #define EEPROM_FACTORY_START        0x0
 #define EEPROM_FACTORY_LEN          0x3000

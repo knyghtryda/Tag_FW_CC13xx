@@ -1053,10 +1053,12 @@ bool processAvailDataInfo(struct AvailDataInfo *avail)
    return true;
 }
 
+#ifndef OEPL_OTA
 void write_ota_firmware_to_flash(void)
 {
    LOG("Called\n");
 }
+#endif
 
 void initializeProto()
 {

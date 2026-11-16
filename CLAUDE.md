@@ -44,6 +44,30 @@ mirrors the CCS project's options; run it through the wrapper:
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash /mnt/c/Users/yancorp/Documents/GitHub/Tag_FW_CC13xx/tools/wsl_build.sh Chroma74H   # or Debug, Proxy, EpdTest
 ```
 
+**74H images: bootloader + app.** Internal flash is `bootloader_CC1310`
+(sector 0, plus the CCFG at 0xFFA8, byte-identical to stock) and the app
+(`CONFIG=Chroma74H`, linked at 0x1000 with `--define=OEPL_APP`, no CCFG).
+OTA only ever rewrites 0x1000–0xEFFF; layout and the app/bootloader contract
+are in `oepl_CC1310/ota_74h.h` (keep it stable). To make release images:
+
+```
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash .../tools/wsl_build_boot.sh          # bootloader_CC1310/build/boot.out
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash .../tools/wsl_build.sh Chroma74H
+# in WSL: tools/out2bin.sh boot.out boot.bin 0x0 0x10000 ; tools/out2bin.sh oepl_CC1310.out app.bin 0x1000 0xE000
+python tools/make_74h_images.py boot.bin app.bin <FW_VERSION> --out <dir>
+```
+
+`chroma74h_full_<ver>.bin` is the 64 KB JTAG image (`dslite --mode flash -e
+-f -v <file>,0x0`; dslite leaves the core halted after a .bin, so power
+cycle). `chroma74h_ota_<ver>.bin` goes to the AP: upload it, then set the
+tag's content to Firmware (mode 5) with that filename (or `/save_cfg` with
+`contentmode=5` and `modecfgjson={"filename":"/<file>"}`); for release, add it
+to OpenEPaperLink `binaries/Tag/` and an `"87"` entry in `tagotaversions.json`.
+The app refuses a file with its own FW_VERSION, a wrong hwType or CRC, or a
+battery below 2400 mV; the bootloader re-checks the CRC before erasing and
+repeats an interrupted copy on the next boot. The bootloader itself is only
+ever written over JTAG.
+
 `Chroma74H` is the 74H OEPL tag firmware (`oepl_74h.c`, `common/` radio,
 syncedproto and powermgt; no EasyLink). `EpdTest` draws the stock screen from
 SPI flash and idles. Debug/Proxy are the original ping test and proxy builds.
