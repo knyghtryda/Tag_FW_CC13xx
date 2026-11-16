@@ -36,8 +36,10 @@
 #ifdef OEPL_74H
 #include "main.h"
 #define EpdWdt(Ms)   wdtSet(Ms)
+#define EPD_TEMPERATURE temperature   // AONBatMon, whole degrees C
 #else
 #define EpdWdt(Ms)
+#define EPD_TEMPERATURE 25
 #endif
 
 #define EPD_PWR     CHROMA_EPD_PWR    // active low
@@ -50,11 +52,17 @@
 
 #define SCRIPT_MAGIC       0xBEEFFACE
 #define SCRIPT_MAX_LEN     0x200
-// Offset of the first record in this tag's script. All records from here to
-// the END record are run in order, at any temperature: the panel's waveform
-// is in its OTP and the script enables its internal temperature sensor
-// (TSE 41 00), so the controller compensates. The temperature table at +0x2A
-// is for panels with external LUTs (RE project epd.md).
+// Script body: offsets in it are relative to SCRIPT_BODY. It starts with
+// u32 offsets of segment 1, the temperature band table and segment 3. Band
+// entries are 9 bytes: int8 threshold in degrees C, u32 offset of segment 2,
+// 4 unused; highest threshold first, ended by a threshold below -99. A draw
+// runs segment 1, segment 2 of the first band whose threshold is <= the
+// temperature, then segment 3 (stock: RE project epd.md 6b). On the bench
+// 74H segments 1 and 2 are empty and segment 3 starts at 0x47.
+#define SCRIPT_BODY        0x2a
+#define SCRIPT_BAND_SIZE   9
+#define SCRIPT_BAND_END    (-99)
+// Used if the body header doesn't parse
 #define SCRIPT_RECORDS     0x47
 
 // A full BWY refresh measured 51.8 s at room temperature (2026-11-16)
@@ -527,6 +535,46 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
    return bRet;
 }
 
+static uint32_t ScriptU32(const uint8_t *p)
+{
+   return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t) p[3] << 24);
+}
+
+// Run segment 1, the temperature band's segment 2 and segment 3
+static bool EpdRunSegments(const uint8_t *pScript)
+{
+   const uint8_t *pBody = &pScript[SCRIPT_BODY];
+   const uint8_t *pEnd = &pScript[SCRIPT_MAX_LEN];
+   uint32_t Max = SCRIPT_MAX_LEN - SCRIPT_BODY;
+   uint32_t Seg1 = ScriptU32(&pBody[0]);
+   uint32_t Bands = ScriptU32(&pBody[4]);
+   uint32_t Seg3 = ScriptU32(&pBody[8]);
+   uint32_t Seg2 = 0xffffffff;
+   uint32_t Band;
+   int Temp = EPD_TEMPERATURE;
+   int8_t Threshold;
+
+   for(Band = Bands; Band + SCRIPT_BAND_SIZE <= Max; Band += SCRIPT_BAND_SIZE) {
+      Threshold = (int8_t) pBody[Band];
+      if(Threshold < SCRIPT_BAND_END) {
+         break;
+      }
+   // the coldest band if none matches (stock doesn't draw then)
+      Seg2 = ScriptU32(&pBody[Band + 1]);
+      if(Threshold <= Temp) {
+         break;
+      }
+   }
+   if(Seg1 >= Max || Seg2 >= Max || Seg3 >= Max) {
+      ELOG("script body doesn't parse, running 0x%x..END\n",SCRIPT_RECORDS);
+      return EpdRunScript(&pScript[SCRIPT_RECORDS],pEnd);
+   }
+   ALOG("panel script: %d C, segments 0x%x 0x%x 0x%x\n",Temp,Seg1,Seg2,Seg3);
+   return EpdRunScript(&pBody[Seg1],pEnd)
+          || EpdRunScript(&pBody[Seg2],pEnd)
+          || EpdRunScript(&pBody[Seg3],pEnd);
+}
+
 bool EpdDrawFromFlash(uint32_t PlaneAdr,uint8_t Flags)
 {
    static uint8_t pScript[SCRIPT_MAX_LEN];   // the heap is only 256 bytes
@@ -549,8 +597,7 @@ bool EpdDrawFromFlash(uint32_t PlaneAdr,uint8_t Flags)
               pScript[4],pScript[5]);
          break;
       }
-      ALOG("running panel script\n");
-      bRet = EpdRunScript(&pScript[SCRIPT_RECORDS],&pScript[SCRIPT_MAX_LEN]);
+      bRet = EpdRunSegments(pScript);
    } while(false);
 
    EpdPower(false);
