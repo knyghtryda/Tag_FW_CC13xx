@@ -152,14 +152,17 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
 - [x] Wake reason: TIMED after any AvailDataInfo, not only NOUPDATE (a
       boot reason sent again after a transfer made the AP clear the hash and
       re-render)
-- [~] AP commands (`OEPL_COMMANDS`): reboot, scan, deep sleep, erase images.
-      Reboot sent from the AP was acknowledged; a clean re-test after a power
-      cycle is pending
+- [x] AP commands (`OEPL_COMMANDS`): reboot and scan verified (AP logged
+      "Booting" / "Network scan"); deep sleep and erase images untested. The
+      command byte must be copied before XferComplete (its ACK overwrites the
+      radio buffer `avail` points into)
 - [~] Preloads / special images (`OEPL_PRELOADS`): header stores the argument,
       downloads go to `xferImgSlot` and skip the displayed slot and stored
       specials, a new special replaces the old one, the main loop draws the
       NOAPFOUND / LOST_CONNECTION image and redraws the current one when the AP
-      is back. Builds; not tested on hardware (needs a preload from the AP)
+      is back. Verified: an `/imgupload` with `preloadtype=2` was stored and
+      acknowledged without a redraw. Note: the AP keeps that upload as the
+      tag's content and resends it as a plain image after a boot check-in
 - [~] AP: `g5Compress()` takes the buffer size as `uint16_t`, so an 800×960
       two-plane frame (96000 bytes) wraps to 30464: images compressing above
       ~30 KB fail with `G5_DATA_OVERFLOW` and go out raw (96000 bytes, handled).
@@ -174,7 +177,13 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       yet (mode 0 inferred); OTA stages at SPI 0xB000 and writes internal flash
       through ROM driverlib, the validation / copy / power-loss design still
       to trace (asked)
-- [ ] Screens (boot / no AP) built in, for tags without AP preloads
+- [x] Built-in screens (webcam-checked 2026-11-16): EPD layers (rectangles +
+      bb_epaper 8x8 font, scaled) rendered row by row while streaming, no
+      frame buffer. Info screen (MAC, FW, battery, temperature, AP status) on
+      a first boot with no image or with no AP; "NO AP" badge over the current
+      image when the AP is lost and no preload exists
+- [x] HardFault handler: records CFSR/HFSR/BFAR/stack in `gFault` (NOINIT),
+      resets, next boot reports a watchdog reset
 - [ ] OTA (after the RE answer on the stock mechanism)
 
 ## README to-do list (all CC13xx tags)

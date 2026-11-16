@@ -31,6 +31,7 @@
 #include "epd_74h.h"
 #include "oepl-definitions.h"
 #include "logging.h"
+#include "font8x8.h"
 
 #ifdef OEPL_74H
 #include "main.h"
@@ -63,7 +64,8 @@
 #define BUSY_ASSERT_MS     500
 // Used if BUSY never rises on the refresh wait, so a refresh isn't cut off
 #define REFRESH_FALLBACK_MS 30000
-#define CHUNK_SIZE         240
+// Two rows per flash read; the layer is applied row by row
+#define CHUNK_SIZE         (2 * EPD_ROW_BYTES)
 
 // Bring-up diagnostics, readable over JTAG (see oepl_CC1310.map for the address)
 #define EPD_DIAG_WAITS     8
@@ -75,6 +77,26 @@ struct {
    uint8_t  Result;           // 1 = ok, 2 = failed
    uint16_t PlaneMs[2];       // upload time of the B/W and yellow plane
 } gEpdDiag;
+
+// Event trace for hangs, kept through a reset for a JTAG read (gEpdTrace in
+// the .map): Ev[] is a ring, Idx counts events; each entry is
+// (milliseconds << 8) | event.
+#pragma NOINIT(gEpdTrace)
+struct {
+   uint32_t Idx;
+   uint32_t Ev[16];
+} gEpdTrace;
+
+#define EpdTrace(e) \
+   gEpdTrace.Ev[gEpdTrace.Idx++ & 15] = \
+      ((ClockP_getSystemTicks() * ClockP_tickPeriod / 1000) << 8) | (e)
+#define TR_RECORD          0x00  // | record type (< 0x10)
+#define TR_WAIT_ASSERTED   0x20
+#define TR_WAIT_DONE       0x21
+#define TR_LOG_START       0x22
+#define TR_LOG_DONE        0x23
+#define TR_DRAW_START      0x30
+#define TR_DRAW_DONE       0x31
 
 // Hidden register writes the stock firmware sends after every reset
 // (stock table at 0xBB30; the factory script repeats them).
@@ -143,6 +165,22 @@ static void EpdCsHigh(void)
    while(SSIDataGetNonBlocking(SSI1_BASE,&Dummy));
    GPIO_setDio(EPD_CS);
 }
+// SSI1 loses its configuration in standby (the peripheral power domain goes
+// off; TI's drivers re-init through Power notifications, this code doesn't),
+// so it is closed before every sleep and reopened on demand. Left open over
+// the refresh wait, the next command stuck in a dead FIFO and the watchdog
+// fired.
+static void EpdSleep(uint32_t Ms)
+{
+   EpdSpiClose();
+   WaitMs(Ms);
+}
+
+static void EpdCsLow(void)
+{
+   EpdSpiOpen();
+   GPIO_clearDio(EPD_CS);
+}
 #else
 static void EpdWrite9(uint16_t Data)
 {
@@ -157,11 +195,13 @@ static void EpdWrite9(uint16_t Data)
 }
 
 #define EpdCsHigh()  GPIO_setDio(EPD_CS)
+#define EpdCsLow()   GPIO_clearDio(EPD_CS)
+#define EpdSleep(Ms) WaitMs(Ms)
 #endif
 
 static void EpdCmd(uint8_t Cmd,const uint8_t *pData,int Len)
 {
-   GPIO_clearDio(EPD_CS);
+   EpdCsLow();
    EpdWrite9(Cmd);
    while(Len-- > 0) {
       EpdWrite9(0x100 | *pData++);
@@ -179,15 +219,16 @@ static bool EpdWaitBusy(uint8_t Record)
 
    EpdWdt(BUSY_ASSERT_MS + REFRESH_FALLBACK_MS + BUSY_TIMEOUT_MS + 10000);
    while(!EpdBusy() && Asserted < BUSY_ASSERT_MS) {
-      WaitMs(1);
+      EpdSleep(1);
       Asserted++;
    }
+   EpdTrace(TR_WAIT_ASSERTED);
 
    if(Asserted >= BUSY_ASSERT_MS) {
       ELOG("BUSY never asserted\n");
       if(Record == 5) {
       // the refresh wait: don't cut the refresh short
-         WaitMs(REFRESH_FALLBACK_MS);
+         EpdSleep(REFRESH_FALLBACK_MS);
       }
    }
    else {
@@ -197,11 +238,14 @@ static bool EpdWaitBusy(uint8_t Record)
             bRet = true;
             break;
          }
-         WaitMs(10);
+         EpdSleep(10);
          Waited += 10;
       }
    }
+   EpdTrace(TR_WAIT_DONE);
+   EpdTrace(TR_LOG_START);
    ALOG("busy: asserted after %u ms, %u ms busy\n",Asserted,Waited);
+   EpdTrace(TR_LOG_DONE);
 
    if(i < EPD_DIAG_WAITS) {
       gEpdDiag.AssertMs[i] = Asserted >= BUSY_ASSERT_MS ? 0xffff : Asserted;
@@ -215,14 +259,11 @@ static bool EpdWaitBusy(uint8_t Record)
 static void EpdPower(bool bOn)
 {
    if(bOn) {
-      WaitMs(5);
+      EpdSleep(5);
       GPIO_clearDio(EPD_RST);
       GPIO_clearDio(EPD_PWR);    // power on
-      WaitMs(25);
+      EpdSleep(25);
       GPIO_setDio(EPD_CS);
-#ifdef EPD_HW_SPI
-      EpdSpiOpen();
-#endif
    }
    else {
 #ifdef EPD_HW_SPI
@@ -241,17 +282,88 @@ static void EpdReset(void)
    int i;
 
    GPIO_clearDio(EPD_RST);
-   WaitMs(2);
+   EpdSleep(2);
    GPIO_setDio(EPD_RST);
    GPIO_setDio(EPD_CS);
-   WaitMs(5);
+   EpdSleep(5);
    for(i = 0; i < sizeof(gHiddenRegs); i += 2) {
       EpdCmd(0xf8,&gHiddenRegs[i],2);
    }
 }
 
+static const EpdLayer *gLayer;
+
+void EpdSetLayer(const EpdLayer *pLayer)
+{
+   gLayer = pLayer;
+}
+
+// Ink W pixels from X on in one row of a plane, in panel polarity: B/W plane
+// 1 = white, yellow plane 0 = yellow
+static void LayerPixels(uint8_t *pRow,int X,int W,int Plane,uint8_t Ink)
+{
+   bool bSet = Plane == 0 ? Ink != EPD_INK_BLACK : Ink != EPD_INK_YELLOW;
+   uint8_t Mask;
+
+   if(X + W > EPD_WIDTH) {
+      W = EPD_WIDTH - X;
+   }
+   for( ; W > 0; W--, X++) {
+      Mask = 0x80 >> (X & 7);
+      if(bSet) {
+         pRow[X >> 3] |= Mask;
+      }
+      else {
+         pRow[X >> 3] &= ~Mask;
+      }
+   }
+}
+
+static void LayerRow(uint8_t *pRow,int Row,int Plane)
+{
+   const EpdRect *pRect;
+   const EpdText *pText;
+   const uint8_t *pGlyph;
+   const char *p;
+   int i;
+   int k;
+   int X;
+   int GlyphRow;
+   uint8_t c;
+
+   for(i = 0; i < gLayer->Rects; i++) {
+      pRect = &gLayer->pRects[i];
+      if(Row >= pRect->Y && Row < pRect->Y + pRect->H) {
+         LayerPixels(pRow,pRect->X,pRect->W,Plane,pRect->Ink);
+      }
+   }
+   for(i = 0; i < gLayer->Texts; i++) {
+      pText = &gLayer->pTexts[i];
+      if(Row < pText->Y || Row >= pText->Y + 8 * pText->Scale) {
+         continue;
+      }
+      GlyphRow = (Row - pText->Y) / pText->Scale;
+      X = pText->X;
+      for(p = pText->pText; *p != 0 && X < EPD_WIDTH; p++) {
+         c = (uint8_t) *p;
+         if(c < 32 || c > 127) {
+            c = '?';
+         }
+         pGlyph = &gFont8x8[(c - 32) * 7];
+      // column 0 of the 8x8 cell is blank
+         for(k = 0; k < 7; k++) {
+            if(pGlyph[k] & (1 << GlyphRow)) {
+               LayerPixels(pRow,X + (k + 1) * pText->Scale,pText->Scale,
+                           Plane,pText->Ink);
+            }
+         }
+         X += 8 * pText->Scale;
+      }
+   }
+}
+
 // Send one plane from SPI flash. Invert: XOR mask applied to every byte.
-// bFill: send Fill instead of reading flash.
+// bFill: send Fill instead of reading flash. The layer, if any, goes on top.
 static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr,uint8_t Invert,
                          bool bFill,uint8_t Fill)
 {
@@ -259,10 +371,11 @@ static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr,uint8_t Invert,
    uint32_t Done;
    uint32_t Len;
    uint32_t i;
+   int Plane = Cmd == 0x10 ? 0 : 1;
    uint32_t Start = ClockP_getSystemTicks();
    bool bRet = false;
 
-   GPIO_clearDio(EPD_CS);
+   EpdCsLow();
    EpdWrite9(Cmd);
    for(Done = 0; Done < EPD_PLANE_SIZE; Done += Len) {
       Len = EPD_PLANE_SIZE - Done;
@@ -278,11 +391,20 @@ static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr,uint8_t Invert,
          break;
       }
       for(i = 0; i < Len; i++) {
-         EpdWrite9(0x100 | (Buf[i] ^ Invert));
+         Buf[i] ^= Invert;
+      }
+      if(gLayer != NULL) {
+      // CHUNK_SIZE and EPD_PLANE_SIZE are whole rows
+         for(i = 0; i < Len; i += EPD_ROW_BYTES) {
+            LayerRow(&Buf[i],(Done + i) / EPD_ROW_BYTES,Plane);
+         }
+      }
+      for(i = 0; i < Len; i++) {
+         EpdWrite9(0x100 | Buf[i]);
       }
    }
    EpdCsHigh();
-   gEpdDiag.PlaneMs[Cmd == 0x10 ? 0 : 1] =
+   gEpdDiag.PlaneMs[Plane] =
       (ClockP_getSystemTicks() - Start) * ClockP_tickPeriod / 1000;
    return bRet;
 }
@@ -292,13 +414,16 @@ static uint8_t gFlags;
 
 static bool EpdSendBw(void)
 {
+   if(gPlaneAdr == EPD_NO_IMAGE) {
+      return EpdSendPlane(0x10,0,0,true,0xff);   // 1 = white
+   }
    return EpdSendPlane(0x10,gPlaneAdr,
                        (gFlags & EPD_INVERT_BW) ? 0xff : 0,false,0);
 }
 
 static bool EpdSendYellow(void)
 {
-   if(gFlags & EPD_NO_YELLOW) {
+   if((gFlags & EPD_NO_YELLOW) || gPlaneAdr == EPD_NO_IMAGE) {
       return EpdSendPlane(0x13,0,0,true,0xff);   // 1 = no yellow
    }
    return EpdSendPlane(0x13,gPlaneAdr + EPD_PLANE_SIZE,
@@ -344,6 +469,7 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
          return true;
       }
       Arg = p[1] | (p[2] << 8);
+      EpdTrace(TR_RECORD | (p[0] & 0x0f));
       switch(p[0]) {
          case 0:     // end
             return false;
@@ -358,7 +484,7 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
             continue;
 
          case 2:     // delay in ms
-            WaitMs(Arg);
+            EpdSleep(Arg);
             break;
 
          case 3:     // wait while busy
@@ -370,7 +496,7 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
             const uint8_t Zero = 0;
             int i;
 
-            GPIO_clearDio(EPD_CS);
+            EpdCsLow();
             EpdWrite9(p[3]);
             for(i = 1; i < Arg; i++) {
                EpdWrite9(0x100 | Zero);
@@ -411,6 +537,7 @@ bool EpdDrawFromFlash(uint32_t PlaneAdr,uint8_t Flags)
    gFlags = Flags;
    memset(&gEpdDiag,0,sizeof(gEpdDiag));
    gEpdDiag.Magic = 0xEDD1A600;
+   EpdTrace(TR_DRAW_START);
    do {
       if(eepromRead(EEPROM_PANEL_SCRIPT,pScript,SCRIPT_MAX_LEN)) {
          ELOG("script read failed\n");
@@ -427,6 +554,7 @@ bool EpdDrawFromFlash(uint32_t PlaneAdr,uint8_t Flags)
    } while(false);
 
    EpdPower(false);
+   EpdTrace(TR_DRAW_DONE);
    gEpdDiag.Result = bRet ? 2 : 1;
    return bRet;
 }

@@ -313,6 +313,29 @@ CCFG.
 - To test the decoder on the PC: fetch the AP's file
   (`/edit?download=/current/<MAC>_*.pending`) and run `g5/g5.c` with
   `eepromRead`/`eepromWrite` mocked on a RAM array (gcc in WSL, ASan).
+- **Standby wipes peripherals set up by hand.** Any `WaitMs()`/`doSleep()`
+  may enter standby, which powers the peripheral domain down. TI drivers
+  re-init through Power notifications; direct driverlib use (SSI1 for the
+  EPD) does not. `epd_74h.c` closes SSI1 before every sleep (`EpdSleep()`)
+  and reopens it at CS low (`EpdCsLow()`). Left open over the refresh wait,
+  the next command sat in a dead FIFO until the watchdog fired.
+- **Debugging a stuck tag:** RAM survives the reset, so read it with one
+  `dslite --mode memory --range=0x20000000,0x1000`. **dslite's length is in
+  32-bit words** (0x1000 = all 16 KB; a byte count runs past RAM and fails).
+  `#pragma NOINIT` records: `gWdtResetMagic` ("WDTR", watchdog fired),
+  `gFault` (HardFault registers and stack), `gEpdTrace` (last 16 EPD events,
+  `(ms << 8) | event`); `gEpdDiag` holds busy-wait timings and plane upload
+  times. After a JTAG session the debugger's vector catch halts the core on a
+  HardFault and any reset halts in the boot ROM, so a stuck tag stays stuck
+  until power cycled; without a probe the fault handler or watchdog resets it.
+- **Panel script bands (decoded 2026-11-16):** body at script +0x2A starts
+  with u32 offsets `seg1, band table, seg3` (script-relative to 0x202A).
+  Each 9-byte band entry is `int8 threshold °C, u32 seg2 offset, 4 unused`,
+  descending, ended by threshold < -99; stock runs seg1, the first band with
+  threshold <= temperature, then seg3. This tag: seg1 and its only band's
+  seg2 (>= -99 °C) are empty END records, seg3 = 0x2047..END, so the draw is
+  temperature-independent and matches what `epd_74h.c` runs. Other panels'
+  scripts may have real bands.
 - **SPI flash timing:** a page program or erase runs on after the SPI
   command. Every read and every WREN must wait for the busy bit first
   (`eepromPrvBusyWait()`); without it, reads returned garbage and a sector

@@ -6,12 +6,16 @@
 
 #ifdef OEPL_74H
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <NoRTOS.h>
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/aon_batmon.h)
 #include DeviceFamily_constructPath(driverlib/sys_ctrl.h)
 #include <ti/drivers/Watchdog.h>
+#include <ti/drivers/dpl/HwiP.h>
+#include DeviceFamily_constructPath(inc/hw_types.h)
+#include DeviceFamily_constructPath(inc/hw_ints.h)
 
 #include "Board.h"
 #include "main.h"
@@ -21,6 +25,8 @@
 #include "oepl-definitions.h"
 #include "powermgt.h"
 #include "eeprom.h"
+#include "epd_74h.h"
+#include "drawing.h"
 #include "logging.h"
 
 #define NVRAM_SECTOR_SIZE  0x1000
@@ -37,6 +43,21 @@
 #define WDT_RESET_MAGIC    0x57445452UL   // "WDTR"
 #pragma NOINIT(gWdtResetMagic)
 static uint32_t gWdtResetMagic;
+
+// HardFault record, kept through the reset for a JTAG read (find gFault in
+// the .map). Stack[] starts at the handler's frame; the exception frame
+// (R0-R3, R12, LR, PC, xPSR) is a few words up.
+#define FAULT_MAGIC        0x464c5421UL   // "FLT!"
+#pragma NOINIT(gFault)
+struct {
+   uint32_t Magic;
+   uint32_t Cfsr;
+   uint32_t Hfsr;
+   uint32_t Bfar;
+   uint32_t Mmfar;
+   uint32_t Sp;
+   uint32_t Stack[26];
+} gFault;
 static Watchdog_Handle gWdt;
 
 uint8_t wakeUpReason = WAKEUP_REASON_FIRSTBOOT;
@@ -52,6 +73,9 @@ static uint8_t channelSelect(uint8_t rounds);
 static void GetTempAndBattV(void);
 static void WdtInit(void);
 static void SleepMs(uint32_t Ms);
+static void ShowInfoScreen(const char *pStatus);
+static void ShowNoAp(uint8_t SpecialType);
+static void ShowApFound(void);
 
 // AvailDataInfo.nextCheckIn: minutes, or seconds in the low 15 bits when
 // bit 15 is set
@@ -89,16 +113,28 @@ int main(void)
    }
 
    initializeProto();
+#ifdef SCREEN_TEST
+// The built-in screens, one after the other (each draw takes ~1 minute)
+   ShowInfoScreen("Screen test");
+   drawOnOffline(0);
+   drawCurrentImage();
+   drawOnOffline(1);
+#endif
    currentChannel = channelSelect(1);
 
    if(currentChannel) {
       ALOG("AP Found\n");
+      if(curImgSlot == 0xFF) {
+      // Nothing stored to show yet (first boot): say who we are
+         ShowApFound();
+      }
       SleepMs(5000UL);
    }
    else {
       ALOG("No AP found\n");
       noApShown = true;
-      bSpecialShown = drawSpecialImage(CUSTOM_IMAGE_NOAPFOUND);
+      ShowNoAp(CUSTOM_IMAGE_NOAPFOUND);
+      bSpecialShown = true;
       SleepMs(120000UL);
    }
 
@@ -152,7 +188,8 @@ int main(void)
             if(!noApShown) {
                noApShown = true;
                ALOG("AP lost\n");
-               bSpecialShown = drawSpecialImage(CUSTOM_IMAGE_LOST_CONNECTION);
+               ShowNoAp(CUSTOM_IMAGE_LOST_CONNECTION);
+               bSpecialShown = true;
             }
             SleepMs(15 * 60 * 1000UL);
          }
@@ -161,7 +198,7 @@ int main(void)
             ALOG("AP Found\n");
             if(bSpecialShown) {
             // back from the AP lost / no AP screen
-               drawCurrentImage();
+               ShowApFound();
                bSpecialShown = false;
             }
             scanAttempts = 0;
@@ -306,10 +343,79 @@ void executeCommand(uint8_t Cmd)
    }
 }
 
-// AP lost / found indication: not implemented yet (README UI to-do)
+// Built-in screens, drawn as EPD layers (no frame buffer)
+
+// "NO AP" badge over the current image, bottom left
+static const EpdRect gNoApRects[] = {
+   {0,EPD_HEIGHT - 68,232,68,EPD_INK_BLACK}
+};
+static const EpdText gNoApTexts[] = {
+   {16,EPD_HEIGHT - 54,5,EPD_INK_YELLOW,"NO AP"}
+};
+static const EpdLayer gNoApLayer = {gNoApRects,1,gNoApTexts,1};
+
+// Called by syncedproto before it draws an image: 0 = draw it with the
+// "NO AP" badge, 1 = plain
 void drawOnOffline(uint8_t state)
 {
-   LOG("State %d\n",state);
+   EpdSetLayer(state ? NULL : &gNoApLayer);
+}
+
+// Information screen for a tag with no image to show
+static void ShowInfoScreen(const char *pStatus)
+{
+   static const EpdRect Rects[] = {
+      {0,0,EPD_WIDTH,100,EPD_INK_YELLOW},
+      {0,EPD_HEIGHT - 16,EPD_WIDTH,16,EPD_INK_YELLOW}
+   };
+   char Mac[24];
+   char Info[40];
+   EpdText Texts[] = {
+      {64,26,6,EPD_INK_BLACK,"OpenEPaperLink"},
+      {40,140,4,EPD_INK_BLACK,BOARD_NAME},
+      {40,220,3,EPD_INK_BLACK,Mac},
+      {40,268,3,EPD_INK_BLACK,Info},
+      {40,360,4,EPD_INK_BLACK,pStatus}
+   };
+   EpdLayer Layer = {Rects,sizeof(Rects) / sizeof(Rects[0]),
+                     Texts,sizeof(Texts) / sizeof(Texts[0])};
+
+   snprintf(Mac,sizeof(Mac),"MAC %02X%02X%02X%02X%02X%02X%02X%02X",
+            mSelfMac[7],mSelfMac[6],mSelfMac[5],mSelfMac[4],
+            mSelfMac[3],mSelfMac[2],mSelfMac[1],mSelfMac[0]);
+   snprintf(Info,sizeof(Info),"FW %04X  %u mV  %d C",FW_VERSION,
+            batteryVoltage,temperature);
+   ALOG("info screen: %s\n",pStatus);
+   EpdSetLayer(&Layer);
+   wdt60s();
+   EpdDrawFromFlash(EPD_NO_IMAGE,0);
+   EpdSetLayer(NULL);
+}
+
+// AP lost / not found: the screen the AP preloaded for it if there is one,
+// else the current image with the "NO AP" badge, else the info screen
+static void ShowNoAp(uint8_t SpecialType)
+{
+   if(drawSpecialImage(SpecialType)) {
+      return;
+   }
+   drawOnOffline(0);
+   if(!drawCurrentImage()) {
+      ShowInfoScreen("No AP found");
+   }
+   drawOnOffline(1);
+}
+
+// AP (re)found: the current image without the badge, else the info screen
+static void ShowApFound(void)
+{
+   char Status[32];
+
+   drawOnOffline(1);
+   if(!drawCurrentImage()) {
+      snprintf(Status,sizeof(Status),"AP found, channel %d",currentChannel);
+      ShowInfoScreen(Status);
+   }
 }
 
 // Watchdog NMI (first timeout): reset now instead of on the second timeout,
@@ -317,6 +423,30 @@ void drawOnOffline(uint8_t state)
 static void WdtNmi(uintptr_t Arg)
 {
    gWdtResetMagic = WDT_RESET_MAGIC;
+   SysCtrlSystemReset();
+}
+
+// HardFault: record it, then reset. Without this the default handler spins
+// until the watchdog fires; after a JTAG session the debugger's vector catch
+// halts the core instead, and nothing resets it.
+static void FaultHandler(uintptr_t Arg)
+{
+   volatile uint32_t Here = 0;
+   uint32_t *pStack = (uint32_t *) &Here;
+   int i;
+
+   gFault.Cfsr = HWREG(0xE000ED28);
+   gFault.Hfsr = HWREG(0xE000ED2C);
+   gFault.Mmfar = HWREG(0xE000ED34);
+   gFault.Bfar = HWREG(0xE000ED38);
+   gFault.Sp = (uint32_t) pStack;
+   for(i = 0; i < sizeof(gFault.Stack) / sizeof(gFault.Stack[0]); i++) {
+      if((uint32_t) &pStack[i] >= 0x20004000) {
+         break;
+      }
+      gFault.Stack[i] = pStack[i];
+   }
+   gFault.Magic = FAULT_MAGIC;
    SysCtrlSystemReset();
 }
 
@@ -329,6 +459,15 @@ static void WdtInit(void)
       ELOG("Watchdog reset\n");
    }
    gWdtResetMagic = 0;
+   if(gFault.Magic == FAULT_MAGIC) {
+   // No wake reason for a crash: report it as a watchdog reset. The record
+   // stays in RAM for a JTAG read until the next fault.
+      wakeUpReason = WAKEUP_REASON_WDT_RESET;
+      ELOG("HardFault: CFSR 0x%x HFSR 0x%x BFAR 0x%x SP 0x%x\n",
+           gFault.Cfsr,gFault.Hfsr,gFault.Bfar,gFault.Sp);
+      gFault.Magic = 0;
+   }
+   HwiP_plug(INT_HARD_FAULT,(void *) FaultHandler);
 
    Watchdog_init();
    Watchdog_Params_init(&Params);
