@@ -1,7 +1,7 @@
 # Command-line build of oepl_CC1310 with TI ARM-CGT, mirroring the CCS
 # project (.cproject). Runs in WSL/Linux:
 #
-#   make [CONFIG=Debug|Proxy|EpdTest|Release]   ->  build/<CONFIG>/oepl_CC1310.out + .map
+#   make [CONFIG=Debug|Proxy|EpdTest|Chroma74H|Release]   ->  build/<CONFIG>/oepl_CC1310.out + .map
 #
 # EpdTest is a Chroma 74H bring-up build: it draws the stock screen stored in
 # SPI flash at 0x15000 using the panel's factory script, then idles.
@@ -32,13 +32,21 @@ DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCC1310_128K -D_CUSTOM_IO_=oepl_io.inl 
 else ifeq ($(CONFIG),EpdTest)
 DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -D_CUSTOM_IO_=oepl_io.inl \
            -DEPD_TEST
+else ifeq ($(CONFIG),Chroma74H)
+# The OEPL tag firmware: main in oepl_74h.c, no EasyLink
+DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -DOEPL_74H
+# common/ OEPL code is written for C99 (the Aeon's compiler default)
+CFLAGS_EXTRA = --c99
+COMMON_EXCLUDE = proxy.c CobsFraming.c
+LOCAL_EXCLUDE = oepl_CC1310.c easylink/EasyLink_nortos.c easylink/easylink_config.c \
+                smartrf_settings/smartrf_settings_predefined.c
 else ifeq ($(CONFIG),Release)
 COMMON_EXCLUDE =
 else
-$(error CONFIG must be Debug, Proxy or Release)
+$(error CONFIG must be Debug, Proxy, EpdTest, Chroma74H or Release)
 endif
 
-SOURCES = $(wildcard *.c easylink/*.c smartrf_settings/*.c) \
+SOURCES = $(filter-out $(LOCAL_EXCLUDE),$(wildcard *.c easylink/*.c smartrf_settings/*.c)) \
           $(filter-out $(addprefix ../common/,$(COMMON_EXCLUDE)),$(wildcard ../common/*.c))
 OBJECTS = $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.obj)))
 vpath %.c . easylink smartrf_settings ../common
@@ -46,7 +54,7 @@ vpath %.c . easylink smartrf_settings ../common
 CFLAGS = --silicon_version=7M3 --code_state=16 --little_endian \
          --float_support=none --symdebug:dwarf --gen_func_subsections=on \
          --diag_warning=225 --diag_warning=255 --diag_wrap=off \
-         --display_error_number $(DEFINES) \
+         --display_error_number $(CFLAGS_EXTRA) $(DEFINES) \
          -I. -I../common -I../shared -I../bb_epaper/src \
          -I$(SDK)/source -I$(SDK)/kernel/nortos -I$(SDK)/kernel/nortos/posix \
          -I$(CGT)/include

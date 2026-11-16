@@ -175,6 +175,8 @@ static void sendAvailDataReq()
    availreq->batteryMv = batteryVoltage;
    availreq->capabilities = capabilities;
    availreq->tagSoftwareVersion = FW_VERSION;
+// The AP drops check-ins from unknown MACs whose channel disagrees with its own
+   availreq->currentChannel = currentChannel;
    addCRC(availreq, sizeof(struct AvailDataReq));
    commsTxNoCpy(outBuffer);
 }

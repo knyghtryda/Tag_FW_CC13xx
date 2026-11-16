@@ -29,6 +29,9 @@
 // SPI flash 0x0000-0x2FFF holds the factory NVRAM (SN, panel serial,
 // resolution) and the panel command script: never erase or write it.
 #define BOARD_NAME                  "Chroma74H"
+// Provisional: no OEPL tagtype exists for an 800x480 BWY Chroma yet
+// (0x80-0x85 are taken; 0x81 is the BWR Aeon 74).
+#define HW_TYPE                     0x86
 #define FLASH_MX25V8006
 
 #define EEPROM_FACTORY_START        0x0

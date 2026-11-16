@@ -79,8 +79,20 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       not internal flash 0x2000 as on the Aeon
 - [ ] RAM: the Aeon's zlib state (8 KB window + 4 KB block buffer) is too big
       for 16 KB; use a 4 KB window (the AP compresses with a 4 KB dictionary)
-- [ ] Main loop on CC1310 (port `ChromaAeon74/main.c` flow onto `common/`):
-      SN → MAC, channel scan, check-in
+- [x] Stage 1, check-in (2026-11-16): makefile config `Chroma74H`
+      (`oepl_CC1310/oepl_74h.c` main following the Aeon `main.c`, SN from
+      NVRAM record 0x80; `ti_radio_config.h` / `ti_drivers_config.h` shims map
+      `common/radio.c`'s SysConfig names onto `smartrf_settings/`; FW_VERSION 2
+      = raw images; `drawImageAtAddress()` in `epd_74h.c`), 48.9 KB flash /
+      9.7 KB RAM. **The tag appears in the AP DB** (AP 192.168.1.244): MAC
+      `44670C1210085924`, hwType 0x86, ver 2, 3273 mV, 19 °C, RSSI −71.
+      `common/syncedproto.c` didn't fill `currentChannel` in the check-in (AP
+      showed `ch` 0); fixed, AP now shows `ch` 202
+- [ ] Stage 2, images: port the G5 decoder from `../Tag_FW_Chroma/g5/`
+      (packed rows, ~384 B workspace, decodes slot→slot in SPI flash; Apache
+      licence files alongside). Needs G5_MAX_WIDTH 800 / G5_ROW_BYTES 100,
+      the Chroma `syncedproto.c` G5 slot handling, and an AP tagtype `86.json`
+      (800x480, yellow colour table, `g5_compression` ≤ our FW_VERSION)
 - [ ] Image download into the SPI flash slots and display
 - [ ] HW_TYPE and AP tagtype file for the 74H (BWY colour table)
 - [ ] End-to-end image push verified at the AP (`hash` updates, `pending` clears)

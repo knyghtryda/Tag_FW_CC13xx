@@ -41,8 +41,12 @@ ARM-CGT 18.12.8 for CC1310, the F2 SDK 8.30.01.01 for CC1311.
 mirrors the CCS project's options; run it through the wrapper:
 
 ```
-MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash /mnt/c/Users/yancorp/Documents/GitHub/Tag_FW_CC13xx/tools/wsl_build.sh Debug   # or Proxy
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash /mnt/c/Users/yancorp/Documents/GitHub/Tag_FW_CC13xx/tools/wsl_build.sh Chroma74H   # or Debug, Proxy, EpdTest
 ```
+
+`Chroma74H` is the 74H OEPL tag firmware (`oepl_74h.c`, `common/` radio,
+syncedproto and powermgt; no EasyLink). `EpdTest` draws the stock screen from
+SPI flash and idles. Debug/Proxy are the original ping test and proxy builds.
 
 Output: `oepl_CC1310/build/<CONFIG>/oepl_CC1310.out` + `.map` (gitignored).
 The wrapper builds from an rsync'd copy in `~/build/Tag_FW_CC13xx`, because

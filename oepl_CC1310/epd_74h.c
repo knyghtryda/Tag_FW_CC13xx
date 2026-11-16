@@ -22,6 +22,7 @@
 #include "cc13xx.h"
 #include "eeprom.h"
 #include "epd_74h.h"
+#include "oepl-definitions.h"
 #include "logging.h"
 
 #define EPD_PWR     CHROMA_EPD_PWR    // active low
@@ -161,7 +162,10 @@ static void EpdReset(void)
    }
 }
 
-static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr)
+// Send one plane from SPI flash. Invert: XOR mask applied to every byte.
+// bFill: send Fill instead of reading flash.
+static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr,uint8_t Invert,
+                         bool bFill,uint8_t Fill)
 {
    uint8_t Buf[CHUNK_SIZE];
    uint32_t Done;
@@ -176,21 +180,42 @@ static bool EpdSendPlane(uint8_t Cmd,uint32_t Adr)
       if(Len > sizeof(Buf)) {
          Len = sizeof(Buf);
       }
-      if(eepromRead(Adr + Done,Buf,Len)) {
+      if(bFill) {
+         memset(Buf,Fill,Len);
+      }
+      else if(eepromRead(Adr + Done,Buf,Len)) {
          ELOG("flash read failed @ 0x%x\n",Adr + Done);
          bRet = true;
          break;
       }
       for(i = 0; i < Len; i++) {
-         EpdWrite9(0x100 | Buf[i]);
+         EpdWrite9(0x100 | (Buf[i] ^ Invert));
       }
    }
    GPIO_setDio(EPD_CS);
    return bRet;
 }
 
+static uint32_t gPlaneAdr;
+static uint8_t gFlags;
+
+static bool EpdSendBw(void)
+{
+   return EpdSendPlane(0x10,gPlaneAdr,
+                       (gFlags & EPD_INVERT_BW) ? 0xff : 0,false,0);
+}
+
+static bool EpdSendYellow(void)
+{
+   if(gFlags & EPD_NO_YELLOW) {
+      return EpdSendPlane(0x13,0,0,true,0xff);   // 1 = no yellow
+   }
+   return EpdSendPlane(0x13,gPlaneAdr + EPD_PLANE_SIZE,
+                       (gFlags & EPD_INVERT_Y) ? 0xff : 0,false,0);
+}
+
 // Record 7: resolution, then the plane(s) selected by record bytes 1 and 2
-static bool EpdImage(const uint8_t *pRec,uint32_t PlaneAdr)
+static bool EpdImage(const uint8_t *pRec)
 {
    const uint8_t Tres[] = {
       EPD_WIDTH >> 8, EPD_WIDTH & 0xff, EPD_HEIGHT >> 8, EPD_HEIGHT & 0xff
@@ -201,23 +226,23 @@ static bool EpdImage(const uint8_t *pRec,uint32_t PlaneAdr)
    // No VDCS (0x82): stock only sends it when the NVRAM holds a VCOM value,
    // and this tag's NVRAM has none.
    if(pRec[2] == 0) {
-      bRet = EpdSendPlane(0x10,PlaneAdr);
+      bRet = EpdSendBw();
       if(!bRet) {
-         bRet = EpdSendPlane(0x13,PlaneAdr + EPD_PLANE_SIZE);
+         bRet = EpdSendYellow();
       }
    }
    else if(pRec[2] >= 2) {
       if(pRec[1] == 2 || pRec[1] == 5) {
-         bRet = EpdSendPlane(0x10,PlaneAdr);
+         bRet = EpdSendBw();
       }
       else {
-         bRet = EpdSendPlane(0x13,PlaneAdr + EPD_PLANE_SIZE);
+         bRet = EpdSendYellow();
       }
    }
    return bRet;
 }
 
-static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd,uint32_t PlaneAdr)
+static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
 {
    uint16_t Arg;
    bool bRet = false;
@@ -269,7 +294,7 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd,uint32_t PlaneAdr)
             break;
 
          case 7:     // image
-            bRet = EpdImage(p,PlaneAdr);
+            bRet = EpdImage(p);
             break;
 
          case 9:     // panel power, byte 1 bit 0 = on
@@ -285,12 +310,14 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd,uint32_t PlaneAdr)
    return bRet;
 }
 
-bool EpdDrawFromFlash(uint32_t PlaneAdr)
+bool EpdDrawFromFlash(uint32_t PlaneAdr,uint8_t Flags)
 {
    static uint8_t pScript[SCRIPT_MAX_LEN];   // the heap is only 256 bytes
    uint32_t Magic;
    bool bRet = true;
 
+   gPlaneAdr = PlaneAdr;
+   gFlags = Flags;
    memset(&gEpdDiag,0,sizeof(gEpdDiag));
    gEpdDiag.Magic = 0xEDD1A600;
    do {
@@ -305,13 +332,40 @@ bool EpdDrawFromFlash(uint32_t PlaneAdr)
          break;
       }
       ALOG("running panel script\n");
-      bRet = EpdRunScript(&pScript[SCRIPT_RECORDS],&pScript[SCRIPT_MAX_LEN],
-                          PlaneAdr);
+      bRet = EpdRunScript(&pScript[SCRIPT_RECORDS],&pScript[SCRIPT_MAX_LEN]);
    } while(false);
 
    EpdPower(false);
    gEpdDiag.Result = bRet ? 2 : 1;
    return bRet;
+}
+
+// Draw an image the OEPL protocol code stored in SPI flash: an
+// EepromImageHeader, then the planes (1 = black, 1 = yellow).
+void drawImageAtAddress(uint32_t addr, uint8_t lut)
+{
+   struct EepromImageHeader Hdr;
+   uint8_t Flags = EPD_INVERT_BW | EPD_INVERT_Y;
+
+   do {
+      if(eepromRead(addr,&Hdr,sizeof(Hdr))) {
+         break;
+      }
+      if(Hdr.validMarker != EEPROM_IMG_VALID) {
+         ELOG("image header not valid\n");
+         break;
+      }
+      if(Hdr.dataType == DATATYPE_IMG_RAW_1BPP) {
+         Flags |= EPD_NO_YELLOW;
+      }
+      else if(Hdr.dataType != DATATYPE_IMG_RAW_2BPP) {
+      // DATATYPE_IMG_ZLIB isn't supported yet (RAM), see FW_VERSION
+         ELOG("dataType 0x%x not supported\n",Hdr.dataType);
+         break;
+      }
+      ALOG("drawing image, dataType 0x%x\n",Hdr.dataType);
+      EpdDrawFromFlash(addr + sizeof(Hdr),Flags);
+   } while(false);
 }
 
 #ifdef EPD_TEST
@@ -326,7 +380,7 @@ void EpdTest()
    bool bErr;
 
    ALOG("EPD test: drawing the image at 0x%x\n",EPD_TEST_SLOT);
-   bErr = EpdDrawFromFlash(EPD_TEST_SLOT + 0x20);
+   bErr = EpdDrawFromFlash(EPD_TEST_SLOT + 0x20,0);
    eepromPower(false);
    ALOG("EPD test %s\n",bErr ? "FAILED" : "done");
    while(true) {
