@@ -143,7 +143,8 @@ redrawing after each read.
 **The 74H panel draws worse at higher supply voltage (2026-11-16).** At 3.0 V
 and 3.3 V (XDS110 output or bench supply) an all-black draw comes out black in
 the top third and increasingly yellow/brown and speckled below, with a ghost
-of the previous image; the top third flashes darker during the refresh, and
+of the previous image. Only drawn (black) pixels shade toward yellow; white
+areas stay white. The top third flashes darker during the refresh, and
 yellow bars look brown. Only at ~2.3 V (bench supply, or 2 of the 6 CR2450 coin cells (in parallel)
 sagging under load) is it even. **Stock firmware does the same**: flashed
 back, it drew the same all-black slot at 3.3 V with the same gradient. Our

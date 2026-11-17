@@ -66,9 +66,10 @@ resets and updates over the air through its own bootloader
 
 Notes:
 
-- The panel draws evenly only at a low supply: on a 3.0–3.3 V bench supply
-  black comes out with a top-to-bottom gradient (the stock firmware does the
-  same). On its coin cells, which sag during a refresh, it is even or close.
+- The panel draws evenly only at a low supply. On a 3.0–3.3 V bench supply,
+  black pixels shade from black at the top to yellow lower down; white areas
+  stay white. The stock firmware does the same. On its coin cells, which sag
+  during a refresh, black is even or close to it.
 - Builds, image layout, flashing and the hardware notes are in `CLAUDE.md`;
   progress and open items in `PLAN.md`.
 - Flash it over JTAG (take the vendor dumps first, the stock firmware can't be
