@@ -86,8 +86,10 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       0x3000–0x7FFF, 0x9000–0x14FFF, 0x45000+ (stock slots 0x15000–0x44FFF
       become reusable once OEPL owns the display). SN from NVRAM record 0x80,
       not internal flash 0x2000 as on the Aeon
-- [ ] RAM: the Aeon's zlib state (8 KB window + 4 KB block buffer) is too big
-      for 16 KB; use a 4 KB window (the AP compresses with a 4 KB dictionary)
+- [x] zlib images (FW 8, 2026-11-17): 4 KB window borrowed from the block
+      transfer buffer, decoded slot to slot (`common/zlib_decode.c`). With it
+      the tag moved to hwType 0x81 (`81.json` sends zlib), as Skip suggested
+      in the PR review
 - [x] Stage 1, check-in (2026-11-16): makefile config `Chroma74H`
       (`oepl_CC1310/oepl_74h.c` main following the Aeon `main.c`, SN from
       NVRAM record 0x80; `ti_radio_config.h` / `ti_drivers_config.h` shims map

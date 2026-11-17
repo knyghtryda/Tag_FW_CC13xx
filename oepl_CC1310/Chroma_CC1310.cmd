@@ -36,7 +36,9 @@
 
 --retain=g_pfnVectors
 
---stack_size=1024   /* C stack is also used for ISR stack */
+/* C stack is also used for ISR stack. 1.5 KB: inflating a zlib image's
+   Huffman trees (uzlib) needs ~0.4 KB on top of the download path */
+--stack_size=1536
 
 --heap_size=256
 
@@ -104,7 +106,8 @@ SECTIONS
 
     .vtable_ram     :   > SRAM
     .data           :   > SRAM
-    .bss            :   > SRAM
+    /* >> lets .bss split around the fixed .TI.noinit below */
+    .bss            :   >> SRAM
     .sysmem         :   > SRAM
     .nonretenvar    :   > SRAM
     /* #pragma NOINIT variables, not touched by the C startup (the watchdog

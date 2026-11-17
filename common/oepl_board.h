@@ -29,15 +29,18 @@
 // SPI flash 0x0000-0x2FFF holds the factory NVRAM (SN, panel serial,
 // resolution) and the panel command script: never erase or write it.
 #define BOARD_NAME                  "Chroma74H"
-// Provisional: no OEPL tagtype exists for an 800x480 BWY Chroma yet.
-// 0x80-0x86 are taken: 0x81 (CHROMA_AEON_74, "also Chroma 74H+") is
-// 800x480 BWR, 0x86 (CHROMA_74_BWY) is the 640x384 CC1110 Chroma74 BWY.
-#define HW_TYPE                     0x87
+// Shares CHROMA_AEON_74 with the Aeon 74 (FW 8 on, was a provisional 0x87):
+// same 800x480 two-plane images, which the AP sends zlib compressed
+// (81.json). The AP renders the second plane as red; this panel shows it
+// yellow. OTA files are told apart by their own magic (ota_74h.h).
+#define HW_TYPE                     0x81
 #define FLASH_MX25V8006
 #define SCREEN_WIDTH                800
 #define SCREEN_HEIGHT               480
-// G5 compressed images (DATATYPE_IMG_G5), decoded by g5/ into a raw slot
+// G5 and zlib compressed images (DATATYPE_IMG_G5, DATATYPE_IMG_ZLIB),
+// decoded by g5/ and zlib_decode.c into a raw slot
 #define G5_SUPPORT
+#define ZLIB_SUPPORT
 // AP commands (DATATYPE_COMMAND_DATA), executeCommand() in oepl_74h.c
 #define OEPL_COMMANDS
 // Preloaded images (AP lost / no AP screens etc.), kept out of the slot

@@ -83,10 +83,12 @@ python tools/make_74h_images.py boot.bin app.bin <FW_VERSION> --out <dir>
 -f -v <file>,0x0`; dslite leaves the core halted after a .bin, so power
 cycle). `chroma74h_ota_<ver>.bin` goes to the AP: upload it, then set the
 tag's content to Firmware (mode 5) with that filename (or `/save_cfg` with
-`contentmode=5` and `modecfgjson={"filename":"/<file>"}`); for release, add it
-to OpenEPaperLink `binaries/Tag/` and an `"87"` entry in `tagotaversions.json`.
+`contentmode=5` and `modecfgjson={"filename":"/<file>"}`). Automatic OTA
+through `tagotaversions.json` is keyed by hwType, and 0x81 is shared with the
+Aeon 74, so it needs an AP change before the 74H can be released that way.
 The app refuses a file with its own FW_VERSION, a wrong hwType or CRC, or a
-battery below 2400 mV; the bootloader re-checks the CRC before erasing and
+battery below 2400 mV (resting reading, `batteryRestMv`); a FW 7 tag needs
+`make_74h_images.py --hwtype 0x87`, since it still checks for 0x87; the bootloader re-checks the CRC before erasing and
 repeats an interrupted copy on the next boot. The bootloader itself is only
 ever written over JTAG.
 
@@ -371,19 +373,33 @@ CCFG.
 
 ## 74H OEPL status (2026-11-16)
 
-- Checks in with the sub-GHz AP and displays G5 images end to end. MAC
-  `44670C1210085924` (`InitSN()`: `44 67`, SN letters − 'A', 4 BCD bytes).
-- **hwType 0x87** (provisional, 800×480 BWY). Not 0x86: that is
-  `CHROMA_74_BWY`, the 640×384 CC1110 Chroma74 BWY (user's AP fork
-  `../OpenEPaperLink-chroma74-bwy`, shared branch `chroma74-bwy-hwid`). Not
-  0x81 `CHROMA_AEON_74` ("also Chroma 74H+"): that one is BWR.
-- AP tagtype `87.json`: its own branch `feat/chroma74h-tagtype` (from
-  upstream master) in `../OpenEPaperLink-chroma74-bwy`, separate from the
-  0x86 work (0x86 re-identifies an already released tag, 0x87 is a new
-  device). `g5_compression` "3" = FW_VERSION 3. No zlib (RAM). It uses the
-  800×480 layouts of `36.json` (`usetemplate` is a decimal hwType: 54 =
-  0x36), which the AP doesn't fetch by itself; both files are on the AP.
-- Upload to the AP with `curl -F path=/tagtypes/87.json -F file=@...
+- Checks in with the sub-GHz AP and displays G5 and zlib images end to end.
+  MAC `44670C1210085924` (`InitSN()`: `44 67`, SN letters − 'A', 4 BCD
+  bytes).
+- **hwType 0x81** (`CHROMA_AEON_74`, shared with the Aeon 74) from FW 8, at
+  the maintainer's suggestion (PR review). Upstream `81.json` (800×480, 2 bpp,
+  `zlib_compression` "3", templates from `36.json`; `usetemplate` is a
+  decimal hwType, 54 = 0x36) fits this panel; its colour table says red,
+  which this panel shows as yellow. Upload it to an AP that lacks it. The
+  AP's single `tagotaversions.json` entry per hwType can't serve both
+  boards' firmware; 74H OTA files carry their own magic (`OA74`), so the
+  tags never accept each other's files. FW 3–7 used a provisional **0x87**
+  with `87.json` (`g5_compression` "3", branch `feat/chroma74h-tagtype` in
+  `../OpenEPaperLink-chroma74-bwy`), now obsolete. Not 0x86: that is
+  `CHROMA_74_BWY`, the 640×384 CC1110 Chroma74 BWY.
+- **zlib** (`ZLIB_SUPPORT`, `common/zlib_decode.c`, uzlib): the file is a u32
+  size, then a zlib stream of the 6-byte image header and planes. The AP's
+  miniz uses a 4 KB dictionary and `rewriteHeader()` declares 4 KB (`0x48`),
+  so a 4 KB window suffices; it borrows `blockXferBuffer` (idle after the
+  download), decoding slot to slot like G5. The AP prefers zlib over G5 when
+  the tagtype allows both. Tested on the PC with the real weather image
+  (AP-style sync flush between planes; bad window, corrupt and truncated
+  files refused) and with the AP's own zlib file (6011 bytes for the weather
+  screen vs ~5.5 KB G5), then on the tag: FW 8 drew it and acked
+  (2026-11-17 13:43). After the hwType change the AP rendered once more with
+  the old tagtype; re-save the content to get zlib. `.bss` is split (`>>` in `Chroma_CC1310.cmd`) around the
+  fixed `.TI.noinit`, and the stack is 1.5 KB for uzlib's tree decoding.
+- Upload to the AP with `curl -F path=/tagtypes/81.json -F file=@...
   .../littlefs_put`, and **set `MSYS_NO_PATHCONV=1` in Git Bash**: it
   rewrites `path=/tagtypes/...` into `C:/Program Files/Git/tagtypes/...`
   and the AP answers "Error. Disk full?" (not an AP bug).

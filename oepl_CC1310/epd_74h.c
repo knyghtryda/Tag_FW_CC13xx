@@ -677,7 +677,7 @@ void drawImageAtAddress(uint32_t addr, uint8_t lut)
          Flags |= EPD_NO_YELLOW;
       }
       else if(Hdr.dataType != DATATYPE_IMG_RAW_2BPP) {
-      // DATATYPE_IMG_ZLIB isn't supported yet (RAM), see FW_VERSION
+      // G5 and zlib images were decoded to raw planes when they arrived
          ELOG("dataType 0x%x not supported\n",Hdr.dataType);
          break;
       }

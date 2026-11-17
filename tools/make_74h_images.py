@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Chroma 74H release images from the bootloader and app builds.
 
-    make_74h_images.py <boot.bin> <app.bin> <version> [--hwtype 0x87] [--out DIR]
+    make_74h_images.py <boot.bin> <app.bin> <version> [--hwtype 0x81] [--out DIR]
 
 boot.bin: bootloader_CC1310 as a 64 KB flat image (tools/out2bin.sh 0x0 0x10000)
 app.bin:  oepl_CC1310 CONFIG=Chroma74H from 0x1000 (out2bin.sh 0x1000 0xE000)
@@ -35,7 +35,7 @@ def main():
     ap.add_argument('boot')
     ap.add_argument('app')
     ap.add_argument('version', type=lambda s: int(s, 0))
-    ap.add_argument('--hwtype', type=lambda s: int(s, 0), default=0x87)
+    ap.add_argument('--hwtype', type=lambda s: int(s, 0), default=0x81)
     ap.add_argument('--out', default='.')
     a = ap.parse_args()
 

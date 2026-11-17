@@ -66,6 +66,7 @@ static Watchdog_Handle gWdt;
 uint8_t wakeUpReason = WAKEUP_REASON_FIRSTBOOT;
 int8_t  temperature;
 uint16_t  batteryVoltage;
+uint16_t  batteryRestMv;
 bool  lowBattery;
 bool noApShown;
 uint8_t capabilities;
@@ -606,6 +607,7 @@ static void GetTempAndBattV(void)
    Temp = AONBatMonBatteryVoltageGet();
    batteryVoltage = (Temp & 0xff) * 1000 / 256;
    batteryVoltage += (Temp >> 8) * 1000;
+   batteryRestMv = batteryVoltage;
    AONBatMonDisable();
    LOG("Temp %d C, BatV %d mV\n",temperature,batteryVoltage);
 }

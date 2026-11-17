@@ -47,8 +47,9 @@ LOCAL_EXCLUDE = oepl_CC1310.c easylink/EasyLink_nortos.c easylink/easylink_confi
                 smartrf_settings/smartrf_settings_predefined.c ccfg.c
 # Linked at 0x1000 behind ../bootloader_CC1310, which carries the CCFG
 LINK_DEFINES = --define=OEPL_APP
-# G5 image decoder (G5_SUPPORT in common/oepl_board.h)
-EXTRA_SOURCES = ../g5/g5.c
+# G5 and zlib image decoders (G5_SUPPORT, ZLIB_SUPPORT in common/oepl_board.h)
+EXTRA_SOURCES = ../g5/g5.c ../uzlib/src/tinflate.c ../uzlib/src/tinfzlib.c \
+                ../uzlib/src/adler32.c ../uzlib/src/crc32.c
 else
 $(error CONFIG must be Debug, Proxy, EpdTest or Chroma74H (the CCS project's Release has no board define))
 endif
@@ -60,13 +61,13 @@ SOURCES = $(filter-out $(LOCAL_EXCLUDE),$(wildcard *.c easylink/*.c smartrf_sett
           $(filter-out $(addprefix ../common/,$(COMMON_EXCLUDE)),$(wildcard ../common/*.c)) \
           $(EXTRA_SOURCES)
 OBJECTS = $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.obj)))
-vpath %.c . easylink smartrf_settings ../common ../g5
+vpath %.c . easylink smartrf_settings ../common ../g5 ../uzlib/src
 
 CFLAGS = --silicon_version=7M3 --code_state=16 --little_endian \
          --float_support=none --symdebug:dwarf --gen_func_subsections=on \
          --diag_warning=225 --diag_warning=255 --diag_wrap=off \
          --display_error_number $(OPT) $(CFLAGS_EXTRA) $(DEFINES) \
-         -I. -I../common -I../shared -I../g5 -I../bb_epaper/src \
+         -I. -I../common -I../shared -I../g5 -I../uzlib/src -I../bb_epaper/src \
          -I$(SDK)/source -I$(SDK)/kernel/nortos -I$(SDK)/kernel/nortos/posix \
          -I$(CGT)/include
 

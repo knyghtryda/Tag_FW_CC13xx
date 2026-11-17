@@ -13,6 +13,9 @@
 #ifdef G5_SUPPORT
 #include "g5.h"
 #endif
+#ifdef ZLIB_SUPPORT
+#include "zlib_decode.h"
+#endif
 
 // #define DEBUGBLOCKS
 
@@ -820,29 +823,46 @@ static bool downloadFWUpdate(const struct AvailDataInfo *avail)
 // Raw two plane images exceed 64 KB (96000 bytes on an 800x480 panel)
 uint32_t imageSize = 0;
 
-#ifdef G5_SUPPORT
-// Decode the G5 file just downloaded into slot Src into another slot,
-// leaving the displayed one alone. The compressed copy never gets a valid
-// header, so its slot is simply reused later.
-static bool decodeG5Image(const uint8_t Src)
+#if defined(G5_SUPPORT) || defined(ZLIB_SUPPORT)
+#ifdef ZLIB_SUPPORT
+#if BLOCK_DATA_SIZE < ZLIB_WINDOW_SIZE
+#error "blockXferBuffer is too small for the zlib window"
+#endif
+#endif
+// Decode the compressed (G5 or zlib) file just downloaded into slot Src into
+// another slot as raw planes, leaving the displayed one alone. The
+// compressed copy never gets a valid header, so its slot is simply reused
+// later.
+static bool decodeImage(const uint8_t Src)
 {
    uint8_t Dst = findFreeSlot(Src);
-   uint8_t RawType;
+   uint8_t RawType = 0;
    uint32_t RawSize;
+   uint32_t SrcAdr = getAddressForSlot(Src) + sizeof(struct EepromImageHeader);
+   uint32_t DstAdr;
 
    if(Dst == 0xFF) {
-      ELOG("G5: no slot to decode into\n");
+      ELOG("no slot to decode into\n");
       return false;
    }
-   LOG("G5: decoding slot %d into slot %d\n",Src,Dst);
+   DstAdr = getAddressForSlot(Dst) + sizeof(struct EepromImageHeader);
+   LOG("decoding type 0x%x, slot %d into slot %d\n",curDataInfo.dataType,Src,Dst);
    wdt60s();   // erasing 24 sectors and decoding take a few seconds
    eraseImageBlock(Dst);
-   RawType = g5Decode(getAddressForSlot(Src) + sizeof(struct EepromImageHeader),
-                      imageSize,
-                      getAddressForSlot(Dst) + sizeof(struct EepromImageHeader),
-                      &RawSize);
+#ifdef G5_SUPPORT
+   if(curDataInfo.dataType == DATATYPE_IMG_G5) {
+      RawType = g5Decode(SrcAdr,imageSize,DstAdr,&RawSize);
+   }
+#endif
+#ifdef ZLIB_SUPPORT
+   if(curDataInfo.dataType == DATATYPE_IMG_ZLIB) {
+   // The block transfer buffer is idle until the next download: lend it as
+   // the window
+      RawType = zlibDecode(SrcAdr,imageSize,DstAdr,&RawSize,blockXferBuffer);
+   }
+#endif
    if(!RawType) {
-      ELOG("G5 decode failed\n");
+      ELOG("decode failed\n");
       return false;
    }
    xferImgSlot = nextImgSlot = Dst;
@@ -911,8 +931,16 @@ static bool downloadImageDataToEEPROM(const struct AvailDataInfo *avail)
       }
    }
 // no more data, download complete
+#if defined(G5_SUPPORT) || defined(ZLIB_SUPPORT)
+   if((false
 #ifdef G5_SUPPORT
-   if(curDataInfo.dataType == DATATYPE_IMG_G5 && !decodeG5Image(xferImgSlot)) {
+       || curDataInfo.dataType == DATATYPE_IMG_G5
+#endif
+#ifdef ZLIB_SUPPORT
+       || curDataInfo.dataType == DATATYPE_IMG_ZLIB
+#endif
+      ) && !decodeImage(xferImgSlot))
+   {
    // Forget the transfer: with dataSize 0 and a matching version the next
    // AvailDataInfo would otherwise be taken for the image on display
       memset(&curDataInfo,0,sizeof(curDataInfo));

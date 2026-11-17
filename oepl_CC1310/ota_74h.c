@@ -79,8 +79,10 @@ void write_ota_firmware_to_flash(void)
       ALOG("OTA: this image is already running\n");
       return;
    }
-   if(batteryVoltage < OTA_MIN_MV) {
-      ELOG("OTA: battery %u mV too low\n",batteryVoltage);
+// Not batteryVoltage: with REPORT_REFRESH_MV that can be the last refresh's
+// minimum, far below what the cells give for the internal flash copy
+   if(batteryRestMv < OTA_MIN_MV) {
+      ELOG("OTA: battery %u mV too low\n",batteryRestMv);
       return;
    }
 

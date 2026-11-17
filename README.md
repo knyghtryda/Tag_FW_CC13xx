@@ -54,15 +54,14 @@ To Do List:
 
 `oepl_CC1310/` (make config `Chroma74H`) is an OEPL port for the Chroma 74H
 (CC1310F64, 800×480 black/white/yellow). It checks in with a sub-GHz AP,
-draws G5 and raw images, shows the OEPL boot screens, survives watchdog
-resets and updates over the air through its own bootloader
-(`bootloader_CC1310/`).
+draws zlib, G5 and raw images, shows the OEPL boot screens, survives
+watchdog resets and updates over the air through its own bootloader
+(`bootloader_CC1310/`). It reports hwType 0x81 like the Aeon 74 and uses
+the AP's `81.json` (whose red shows as yellow on this panel).
 
 > [!WARNING]
 > **Alpha, for testing only.** It runs on its CR2450 coin cells, but its
-> sleep current hasn't been measured, so battery life is unknown. The hwType
-> (0x87) is provisional and the AP needs a matching `87.json` tagtype that
-> isn't in OpenEPaperLink yet.
+> sleep current hasn't been measured, so battery life is unknown.
 
 Notes:
 
