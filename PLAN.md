@@ -80,7 +80,7 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
 - [ ] Bring `common/radio.c`, `syncedproto.c`, `RFQueue.c`, `powermgt.c` into the
       CC1310 build (excluded today); map `ti_radio_config.h` names onto
       `oepl_CC1310/smartrf_settings/`
-- [ ] 74H board config in `common/board.h`. Don't reuse the Aeon layout: it puts
+- [ ] 74H board config in `common/oepl_board.h`. Don't reuse the Aeon layout: it puts
       `EEPROM_SETTINGS_AREA_START` at SPI 0x0, which on the 74H is the factory
       NVRAM (SN!) — 0x0000–0x2FFF must never be written. Free on the 74H:
       0x3000–0x7FFF, 0x9000–0x14FFF, 0x45000+ (stock slots 0x15000–0x44FFF
@@ -100,7 +100,7 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
 - [x] Stage 2, images (2026-11-16): G5 decoder from `../Tag_FW_Chroma/g5/`
       (0e17be9) in `g5/` with its BSL 1.1 licence files, rows widened to 800
       px, private 396-byte workspace. `common/syncedproto.c` (`G5_SUPPORT`
-      from `board.h`, 74H only): G5 file decoded into a second slot that skips
+      from `oepl_board.h`, 74H only): G5 file decoded into a second slot that skips
       the displayed one; `imageSize` now 32-bit (raw 74H image = 96000 bytes);
       downloads larger than a slot rejected; a failed decode clears
       `curDataInfo` so it isn't acknowledged as shown. FW_VERSION 3.

@@ -54,7 +54,7 @@
 /* must be located at the beginning of the application.                      */
 /* The Chroma tags use a CC1310F64. For a CC1310F128 tag pass                */
 /* --define=CC1310F128 to the linker. (Not CC1310_128K: that compiler define */
-/* selects a 128K *SPI flash* in common/board.h.)                            */
+/* selects a 128K *SPI flash* in common/oepl_board.h.)                            */
 /* --define=OEPL_APP: the Chroma 74H OEPL app, started by bootloader_CC1310.  */
 /* Sector 0 holds the bootloader and sector 15 the CCFG (part of the         */
 /* bootloader image); OTA only ever writes 0x1000-0xEFFF.                    */

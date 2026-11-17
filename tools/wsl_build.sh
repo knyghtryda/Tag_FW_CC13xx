@@ -3,9 +3,9 @@
 #
 #   wsl -d Ubuntu -- bash tools/wsl_build.sh [CONFIG] [make args...]
 #
-# /mnt/c is case-insensitive, so "Board.h" (oepl_CC1310) would resolve to
-# common/board.h when included from common/. Building from a copy under
-# $HOME keeps upstream's case-sensitive include behaviour. The build output
+# The copy was needed while common/oepl_board.h was common/board.h: /mnt/c
+# is case-insensitive, so "Board.h" from common/ resolved to it. The tree now
+# builds in place too (make -C oepl_CC1310). The build output
 # (build/<CONFIG>/oepl_CC1310.out and .map) is copied back into the repo.
 set -e
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

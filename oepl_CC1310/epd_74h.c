@@ -11,7 +11,7 @@
  * hidden register table are from the stock firmware, see
  * ../chroma74h_reverse_engineering/docs/epd.md and CLAUDE.md.
  */
-#include "board.h"
+#include "oepl_board.h"
 
 #ifdef CHROMA_74H
 #include <string.h>

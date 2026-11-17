@@ -8,7 +8,7 @@
 #include "powermgt.h"
 #include "eeprom.h"
 #include "drawing.h"
-#include "board.h"
+#include "oepl_board.h"
 #include "radio.h"
 #ifdef G5_SUPPORT
 #include "g5.h"

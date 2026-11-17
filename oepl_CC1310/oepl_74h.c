@@ -2,7 +2,7 @@
  * OEPL main loop for the Chroma 74H (CC1310F64), built with -DOEPL_74H
  * (makefile CONFIG=Chroma74H). Follows ChromaAeon74/main.c.
  */
-#include "board.h"
+#include "oepl_board.h"
 
 #ifdef OEPL_74H
 #include <stdint.h>

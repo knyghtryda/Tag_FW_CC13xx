@@ -3,7 +3,7 @@
  * SPI flash by syncedproto's downloadFWUpdate()), arm the bootloader and
  * reset into it. See ota_74h.h.
  */
-#include "board.h"
+#include "oepl_board.h"
 
 #if defined(OEPL_74H) && defined(OEPL_OTA)
 #include <stddef.h>

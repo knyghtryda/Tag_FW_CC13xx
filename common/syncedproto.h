@@ -24,5 +24,5 @@ void eraseImageSlots(void);
 bool drawSpecialImage(const uint8_t Type);
 bool drawCurrentImage(void);
 // DATATYPE_COMMAND_DATA, provided by the board's main when OEPL_COMMANDS is
-// defined in board.h
+// defined in oepl_board.h
 void executeCommand(uint8_t Cmd);

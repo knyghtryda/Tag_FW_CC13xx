@@ -47,7 +47,7 @@ LOCAL_EXCLUDE = oepl_CC1310.c easylink/EasyLink_nortos.c easylink/easylink_confi
                 smartrf_settings/smartrf_settings_predefined.c ccfg.c
 # Linked at 0x1000 behind ../bootloader_CC1310, which carries the CCFG
 LINK_DEFINES = --define=OEPL_APP
-# G5 image decoder (G5_SUPPORT in common/board.h)
+# G5 image decoder (G5_SUPPORT in common/oepl_board.h)
 EXTRA_SOURCES = ../g5/g5.c
 else
 $(error CONFIG must be Debug, Proxy, EpdTest or Chroma74H (the CCS project's Release has no board define))

@@ -3,7 +3,7 @@
  * buffer. No 32-bit bit reservoir, transition arrays, or heap allocation. */
 #include <stdbool.h>
 #include "g5.h"
-#include "board.h"
+#include "oepl_board.h"
 #include "eeprom.h"
 #include "oepl-proto.h"
 #include "oepl-definitions.h"

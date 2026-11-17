@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "board.h"
+#include "oepl_board.h"
 
 #define EEPROM_IMG_VALID				(0x494d4721UL)
 

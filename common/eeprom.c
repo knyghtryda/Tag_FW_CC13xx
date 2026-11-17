@@ -7,7 +7,7 @@
 #endif
 
 #include "eeprom.h"
-#include "board.h"
+#include "oepl_board.h"
 #include "logging.h"
 
 #define CMD_PP          0x02
