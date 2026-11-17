@@ -41,8 +41,11 @@ ARM-CGT 18.12.8 for CC1310, the F2 SDK 8.30.01.01 for CC1311.
 mirrors the CCS project's options; run it through the wrapper:
 
 ```
-MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash /mnt/c/Users/yancorp/Documents/GitHub/Tag_FW_CC13xx/tools/wsl_build.sh Chroma74H   # or Debug, Proxy, EpdTest
+MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash /mnt/c/<path to repo>/tools/wsl_build.sh Chroma74H   # or Debug, Proxy, EpdTest
 ```
+
+Machine-specific notes (this checkout's path, the webcam on the panel) are in
+`CLAUDE.local.md`, which is gitignored.
 
 **74H images: bootloader + app.** Internal flash is `bootloader_CC1310`
 (sector 0, plus the CCFG at 0xFFA8, byte-identical to stock) and the app
@@ -141,13 +144,20 @@ redrawing after each read.
 and 3.3 V (XDS110 output or bench supply) an all-black draw comes out black in
 the top third and increasingly yellow/brown and speckled below, with a ghost
 of the previous image; the top third flashes darker during the refresh, and
-yellow bars look brown. Only at ~2.3 V (bench supply, or 2 of the 6 cells
+yellow bars look brown. Only at ~2.3 V (bench supply, or 2 of the 6 CR2450 coin cells (in parallel)
 sagging under load) is it even. **Stock firmware does the same**: flashed
 back, it drew the same all-black slot at 3.3 V with the same gradient. Our
 command stream matches stock exactly (RE decode), and a bit-banged SPI build
 looked the same as SSI1, so this is the panel/board, not the firmware. Stock's
 own last screen (black circle + checkmark on a full pack) looked clean; why is
-open. Judge drawing quality at ~2.3–2.7 V or on the tag's batteries; the
+open. **On its own coin cells the tag draws evenly** (2026-11-17, FW 7, 4 of
+6 CR2450s, closed tag): the overnight weather draw came out evenly black,
+with the supply sagging to 2292–2468 mV during refreshes (`REPORT_REFRESH_MV`).
+The cells' internal resistance pulls the supply into the good range, so the
+gradient is mostly a bench-supply artefact. With all six cells (same day,
+resting 2828 mV vs 2738–2781 with four) it came partly back: the dark band
+during the refresh reached halfway down and the weather screen showed a
+gradient, weaker than on the bench. Judge drawing quality at ~2.3–2.7 V or on the tag's batteries; the
 debugger's 3.3 V is fine for everything else.
 
 Errors -242 / -2131 / -275 are a marginal TMS/TCK connection or the wrong scan
@@ -162,15 +172,6 @@ for `--range=0,0x10000`); everything above 0x10000 is `BA D0` fill, so keep
 only the first 64 KB. After flashing,
 **power cycle** the tag; the XDS110 reset pulse doesn't start the new image.
 
-**Webcam on the panel** (Dell Webcam WB7022, pointed at the 74H; ffmpeg from
-winget). Grab a frame and look at it with the Read tool:
-
-```
-F=/c/Users/yancorp/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.2-full_build/bin/ffmpeg.exe
-MSYS_NO_PATHCONV=1 "$F" -loglevel error -y -f dshow -video_size 1920x1080 -i video="Dell Webcam WB7022" -ss 2 -frames:v 1 <scratchpad>/cam.jpg
-```
-
-Window glare can wash out part of the panel; judge colours on the shaded side.
 
 **Take the vendor dumps before flashing anything.** They are the only way back
 to stock. If the debug port turns out to be locked, getting in means a mass

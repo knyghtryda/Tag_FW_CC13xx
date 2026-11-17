@@ -10,7 +10,7 @@ So far the following tags are known to be based on CC13xx SOCs
 |Chroma 21, SN starting with 'MJ' | CC1310 ||
 |Chroma 21, SN starting with 'LD' | CC1310 ||
 |Chroma 29, SN starting with 'ME' | CC1310 |EP_CHROMA29_CC1310 (38) |
-|Chroma 74H, SN starting with 'MS' | CC1310 ||
+|Chroma 74H, SN starting with 'MS' | CC1310-F64 | own driver, `oepl_CC1310/epd_74h.c` |
 |Chroma Aeon 74, SN starting with 'SR'| CC1311 | EP75R_800x480 (33) |
 |Solum 2.9" EL029D2WRA| CC1310-F128 ||
 
@@ -49,6 +49,31 @@ To Do List:
 - [ ] Check Tx power
 - [ ] Audit current consumption
 
+
+### Chroma 74H (alpha)
+
+`oepl_CC1310/` (make config `Chroma74H`) is an OEPL port for the Chroma 74H
+(CC1310F64, 800×480 black/white/yellow). It checks in with a sub-GHz AP,
+draws G5 and raw images, shows the OEPL boot screens, survives watchdog
+resets and updates over the air through its own bootloader
+(`bootloader_CC1310/`).
+
+> [!WARNING]
+> **Alpha, for testing only.** It runs on its CR2450 coin cells, but its
+> sleep current hasn't been measured, so battery life is unknown. The hwType
+> (0x87) is provisional and the AP needs a matching `87.json` tagtype that
+> isn't in OpenEPaperLink yet.
+
+Notes:
+
+- The panel draws evenly only at a low supply: on a 3.0–3.3 V bench supply
+  black comes out with a top-to-bottom gradient (the stock firmware does the
+  same). On its coin cells, which sag during a refresh, it is even or close.
+- Builds, image layout, flashing and the hardware notes are in `CLAUDE.md`;
+  progress and open items in `PLAN.md`.
+- Flash it over JTAG (take the vendor dumps first, the stock firmware can't be
+  recovered otherwise): `chroma74h_full_<ver>.bin` from
+  `tools/make_74h_images.py`, then OTA with `chroma74h_ota_<ver>.bin`.
 
 ## Building the firmware
 

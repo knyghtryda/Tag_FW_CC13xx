@@ -234,8 +234,9 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       internal flash programming fails; OTA needs >= 2400 mV)
 - [x] Supply voltage during draws: sampled from BATMON in the busy waits
       (`gEpdDiag.MinMv/MaxMv/Samples`); `REPORT_REFRESH_MV` reports the minimum
-      to the AP on the next check-in. 2 AA cells: 2558 mV at the lowest during
-      a boot screen, idle ~2.87-3.2 V. Same cells, FW 7, hourly weather
+      to the AP on the next check-in. The 74H
+      runs on CR2450 lithium coin cells, 6 in parallel. 2 cells: 2558 mV at
+      the lowest during a boot screen, idle ~2.87-3.2 V. 4 cells, FW 7, hourly weather
       draws (2026-11-17): rest 2738-2781 mV at 05:00, refresh minimum 2468 mV
       at 00:25 and 2292 mV at 09:05. With the switch on, the AP's battery
       field alternates between the two kinds of reading; a PC logger
