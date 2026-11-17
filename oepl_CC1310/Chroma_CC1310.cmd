@@ -108,8 +108,14 @@ SECTIONS
     .sysmem         :   > SRAM
     .nonretenvar    :   > SRAM
     /* #pragma NOINIT variables, not touched by the C startup (the watchdog
-       reset marker in oepl_74h.c) */
+       reset marker in oepl_74h.c). Behind bootloader_CC1310 they must also
+       stay clear of the RAM its startup zeroes on every boot (OTA_BOOT_RAM_*
+       in ota_74h.h), or no record survives a reset. */
+#ifdef OEPL_APP
+    .TI.noinit      :   > 0x20001800
+#else
     .TI.noinit      :   > SRAM
+#endif
 
     .stack          :   > SRAM (HIGH)
 }

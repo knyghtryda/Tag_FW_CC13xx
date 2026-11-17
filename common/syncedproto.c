@@ -779,6 +779,11 @@ static bool downloadFWUpdate(const struct AvailDataInfo *avail)
         // looks like we did. We'll carry on where we left off.
    }
    else {
+      if(avail->dataSize > EEPROM_OTA_LEN) {
+      // it would be written over the image slots behind the OTA area
+         ELOG("FW size %d doesn't fit the OTA area\n",avail->dataSize);
+         return false;
+      }
         // start, or restart the transfer from 0. Copy data from the AvailDataInfo struct, and the struct intself. This forces a new transfer
       curBlock.blockId = 0;
       memcpy(&(curBlock.ver), &(avail->dataVer), 8);
@@ -979,6 +984,9 @@ bool processAvailDataInfo(struct AvailDataInfo *avail)
             if(!downloadImageDataToEEPROM(avail)) {
                return false;
             }
+         // Not on display: if the same pixels come later as the regular
+         // image, the check above must not take them for the one shown
+            memset(&curDataInfo,0,sizeof(curDataInfo));
             sendXferComplete();
             return true;
          }

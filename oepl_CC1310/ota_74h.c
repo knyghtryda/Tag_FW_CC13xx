@@ -73,6 +73,12 @@ void write_ota_firmware_to_flash(void)
       ELOG("OTA: image CRC 0x%x, expected 0x%x\n",Crc,Hdr.ImageCrc);
       return;
    }
+// The image already running, whatever version the file claims: applying it
+// again would repeat forever if the AP keeps offering it
+   if(OtaCrc32(0,(const uint8_t *) OTA_APP_BASE,Hdr.ImageLen) == Hdr.ImageCrc) {
+      ALOG("OTA: this image is already running\n");
+      return;
+   }
    if(batteryVoltage < OTA_MIN_MV) {
       ELOG("OTA: battery %u mV too low\n",batteryVoltage);
       return;

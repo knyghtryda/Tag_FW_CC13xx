@@ -28,6 +28,12 @@
 #define OTA_APP_MAX          0xe000      // up to the CCFG sector
 #define OTA_SECTOR_SIZE      0x1000
 
+// RAM the bootloader's startup zeroes or uses on every boot (its .bss and
+// stack). The app's #pragma NOINIT records (watchdog marker, fault record,
+// EPD trace) are linked at 0x20001800, outside both (Chroma_CC1310.cmd).
+#define OTA_BOOT_RAM_LOW_END  0x20001000  // 0x20000000 up to here
+#define OTA_BOOT_RAM_HIGH     0x20003e00  // from here to 0x20004000
+
 // SPI flash (EEPROM_OTA_START is 0x10000, 64 KB)
 #define OTA_STAGE_ADR        0x10000     // the OTA file as downloaded
 #define OTA_RECORD_ADR       0x1f000     // last sector of the OTA area

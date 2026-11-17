@@ -383,7 +383,10 @@ CCFG.
   `#pragma NOINIT` records: `gWdtResetMagic` ("WDTR", watchdog fired),
   `gFault` (HardFault registers and stack), `gEpdTrace` (last 16 EPD events,
   `(ms << 8) | event`); `gEpdDiag` holds busy-wait timings and plane upload
-  times. After a JTAG session the debugger's vector catch halts the core on a
+  times. The `NOINIT` records are linked at `0x20001800` (`.TI.noinit` in
+  `Chroma_CC1310.cmd`): the bootloader's startup zeroes `0x20000000`–
+  `0x20000FFF` on every boot, which wiped them in FW 4–6 (watchdog resets
+  were reported as first boots). After a JTAG session the debugger's vector catch halts the core on a
   HardFault and any reset halts in the boot ROM, so a stuck tag stays stuck
   until power cycled; without a probe the fault handler or watchdog resets it.
 - **Panel script bands (decoded 2026-11-16):** body at script +0x2A starts

@@ -215,10 +215,32 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       Suspects left: the panel's power rails / reservoir caps on the board,
       the flex's hot-bar bond, or the panel. Rail measurements need finer
       probes than are at hand; not pursued for now
+- [x] Code review of the branch (2026-11-17), fixed in FW 7 (OTA):
+      the bootloader's startup zeroed the RAM holding the reset records
+      (`gWdtResetMagic`, `gFault`, `gEpdTrace` at 0x20000100), so since FW 4
+      a watchdog reset or crash reported as a first boot and drew the boot
+      screens; now linked at 0x20001800. Firmware downloads bigger than the
+      OTA area are refused (they'd overwrite image slot 0). An OTA file whose
+      image is already running is refused whatever version it claims. A
+      preload no longer leaves its version in `curDataInfo`, where the same
+      pixels sent later as the regular image were acked without a draw.
+      FW 6 → 7 over OTA on batteries, tag closed: installed 2026-11-17 05:04
+      (queued at 00:15, but the AP queues no content inside its night window,
+      sleeptime 0–5, so it went out at the first check-in after 05:00)
+- [ ] Bootloader (needs JTAG, not OTA-able): if a copy fails 5 times on a
+      sector it still jumps to the app when the vectors look valid, i.e. into
+      a half-written image that may hang before its watchdog starts. Better:
+      reset and retry while the record is armed. Low risk (only seen if
+      internal flash programming fails; OTA needs >= 2400 mV)
 - [x] Supply voltage during draws: sampled from BATMON in the busy waits
       (`gEpdDiag.MinMv/MaxMv/Samples`); `REPORT_REFRESH_MV` reports the minimum
       to the AP on the next check-in. 2 AA cells: 2558 mV at the lowest during
-      a boot screen, idle ~2.87-3.2 V
+      a boot screen, idle ~2.87-3.2 V. Same cells, FW 7, hourly weather
+      draws (2026-11-17): rest 2738-2781 mV at 05:00, refresh minimum 2468 mV
+      at 00:25 and 2292 mV at 09:05. With the switch on, the AP's battery
+      field alternates between the two kinds of reading; a PC logger
+      (polling `get_db`, one row per check-in, marked rest/refresh) separates them
+- [ ] Sleep current: never measured. Only the battery trend shows it for now
 
 ## README to-do list (all CC13xx tags)
 
