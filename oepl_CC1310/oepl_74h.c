@@ -37,6 +37,9 @@
 // trip it. The watchdog period limit is 2863 s.
 #define SLEEP_CHUNK_MS     (20 * 60 * 1000UL)
 #define SLEEP_WDT_MARGIN_MS 60000UL
+// After a boot / scan / watchdog check-in without data: the next check-in
+// (the AP renders our content in the meantime)
+#define BOOT_RECHECK_MS    40000UL
 
 // Set by the watchdog NMI before it resets the chip, read on the next boot.
 // Not zeroed by the C startup; the CC1310 keeps SRAM through a system reset.
@@ -73,7 +76,10 @@ static uint8_t channelSelect(uint8_t rounds);
 static void GetTempAndBattV(void);
 static void WdtInit(void);
 static void SleepMs(uint32_t Ms);
-static void ShowInfoScreen(const char *pStatus);
+static void ShowInfoScreen(const char *pStatus,const char *pLine1,
+                           const char *pLine2);
+static void ShowSplash(void);
+static void ShowBootApFound(void);
 static void ShowNoAp(uint8_t SpecialType);
 static void ShowApFound(void);
 
@@ -90,7 +96,7 @@ static uint32_t ApSleepMs(uint16_t NextCheckIn)
 int main(void)
 {
    bool bSpecialShown = false;   // a preloaded AP lost / no AP screen is up
-
+   bool bBootScreens;
    Board_initGeneral();
    NoRTOS_start();
    InitLogging();
@@ -115,18 +121,42 @@ int main(void)
    initializeProto();
 #ifdef SCREEN_TEST
 // The built-in screens, one after the other (each draw takes ~1 minute)
-   ShowInfoScreen("Screen test");
+   ShowInfoScreen("Screen test","","");
    drawOnOffline(0);
    drawCurrentImage();
    drawOnOffline(1);
 #endif
+#ifdef FILL_TEST
+// One colour over the whole panel (FILL_TEST=EPD_INK_BLACK etc.), then hold
+// it: for judging the panel's drive uniformity
+   {
+      static const EpdRect Fill = {0,0,EPD_WIDTH,EPD_HEIGHT,FILL_TEST};
+      static const EpdLayer Layer = {&Fill,1,NULL,0};
+
+      ALOG("FILL_TEST %d\n",FILL_TEST);
+      EpdSetLayer(&Layer);
+      wdt60s();
+      EpdDrawFromFlash(EPD_NO_IMAGE,0);
+      EpdSetLayer(NULL);
+      while(true) {
+         SleepMs(SLEEP_CHUNK_MS);
+      }
+   }
+#endif
+// OEPL boot screens, as on the CC1110 Chroma tags: splash, then AP found
+// (the AP sends the current image again after a boot check-in). Not after a
+// watchdog reset or crash, where a reset loop would refresh the panel (~1
+// minute each) over and over; the image on the panel is still there then.
+   bBootScreens = wakeUpReason != WAKEUP_REASON_WDT_RESET;
+   if(bBootScreens) {
+      ShowSplash();
+   }
    currentChannel = channelSelect(1);
 
    if(currentChannel) {
       ALOG("AP Found\n");
-      if(curImgSlot == 0xFF) {
-      // Nothing stored to show yet (first boot): say who we are
-         ShowApFound();
+      if(bBootScreens || curImgSlot == 0xFF) {
+         ShowBootApFound();
       }
       SleepMs(5000UL);
    }
@@ -141,6 +171,15 @@ int main(void)
    while(1) {
       wdt10s();
       GetTempAndBattV();
+#ifdef REPORT_REFRESH_MV
+   // Test switch: report the lowest supply voltage of the last panel refresh
+   // as the battery voltage, so the AP's web UI shows how far the supply
+   // sags under the refresh load
+      if(gEpdRefreshMinMv != 0) {
+         batteryVoltage = gEpdRefreshMinMv;
+         gEpdRefreshMinMv = 0;
+      }
+#endif
       if(currentChannel) {
          struct AvailDataInfo *avail;
          avail = getAvailDataInfo();
@@ -160,6 +199,17 @@ int main(void)
             }
             else {
                LOG("No data transfer\n");
+               if(wakeUpReason != WAKEUP_REASON_TIMED
+                  && ApSleepMs(nextCheckInFromAP) > BOOT_RECHECK_MS)
+               {
+               // The AP's radio answers before the AP sees our boot reason, so
+               // this can be a sleep offered before we rebooted. The AP clears
+               // our content for a redraw on a boot check-in: come back soon
+               // for it instead of sleeping out the old offer.
+                  LOG("boot check-in: next check-in in %u s\n",
+                      BOOT_RECHECK_MS / 1000);
+                  nextCheckInFromAP = 0x8000 | (BOOT_RECHECK_MS / 1000);
+               }
             }
          // The AP has heard the boot / watchdog reason now. Still sent with
          // the next check-in, it made the AP log "Booting" again, clear the
@@ -361,8 +411,10 @@ void drawOnOffline(uint8_t state)
    EpdSetLayer(state ? NULL : &gNoApLayer);
 }
 
-// Information screen for a tag with no image to show
-static void ShowInfoScreen(const char *pStatus)
+// Information screen (splash, AP found, no AP): who we are, then a status
+// line and two detail lines (may be empty)
+static void ShowInfoScreen(const char *pStatus,const char *pLine1,
+                           const char *pLine2)
 {
    static const EpdRect Rects[] = {
       {0,0,EPD_WIDTH,100,EPD_INK_YELLOW},
@@ -372,10 +424,12 @@ static void ShowInfoScreen(const char *pStatus)
    char Info[40];
    EpdText Texts[] = {
       {64,26,6,EPD_INK_BLACK,"OpenEPaperLink"},
-      {40,140,4,EPD_INK_BLACK,BOARD_NAME},
-      {40,220,3,EPD_INK_BLACK,Mac},
-      {40,268,3,EPD_INK_BLACK,Info},
-      {40,360,4,EPD_INK_BLACK,pStatus}
+      {40,130,4,EPD_INK_BLACK,BOARD_NAME},
+      {40,190,3,EPD_INK_BLACK,Mac},
+      {40,226,3,EPD_INK_BLACK,Info},
+      {40,300,4,EPD_INK_BLACK,pStatus},
+      {40,360,3,EPD_INK_BLACK,pLine1},
+      {40,396,3,EPD_INK_BLACK,pLine2}
    };
    EpdLayer Layer = {Rects,sizeof(Rects) / sizeof(Rects[0]),
                      Texts,sizeof(Texts) / sizeof(Texts[0])};
@@ -392,6 +446,33 @@ static void ShowInfoScreen(const char *pStatus)
    EpdSetLayer(NULL);
 }
 
+// Power-up / reboot: the splash the AP preloaded, else the info screen
+static void ShowSplash(void)
+{
+   if(drawSpecialImage(CUSTOM_IMAGE_SPLASHSCREEN)) {
+      return;
+   }
+   ShowInfoScreen("Starting up","Looking for an AP . . .","");
+}
+
+// AP found at boot: the AP found screen the AP preloaded, else the info
+// screen with the AP and link quality
+static void ShowBootApFound(void)
+{
+   char Ap[24];
+   char Link[32];
+
+   if(drawSpecialImage(CUSTOM_IMAGE_APFOUND)) {
+      return;
+   }
+   snprintf(Ap,sizeof(Ap),"AP %02X%02X%02X%02X%02X%02X%02X%02X",
+            APmac[7],APmac[6],APmac[5],APmac[4],
+            APmac[3],APmac[2],APmac[1],APmac[0]);
+   snprintf(Link,sizeof(Link),"Ch %d  RSSI %d  LQI %d",currentChannel,
+            mLastRSSI,mLastLqi);
+   ShowInfoScreen("Waiting for data . . .",Ap,Link);
+}
+
 // AP lost / not found: the screen the AP preloaded for it if there is one,
 // else the current image with the "NO AP" badge, else the info screen
 static void ShowNoAp(uint8_t SpecialType)
@@ -401,20 +482,17 @@ static void ShowNoAp(uint8_t SpecialType)
    }
    drawOnOffline(0);
    if(!drawCurrentImage()) {
-      ShowInfoScreen("No AP found");
+      ShowInfoScreen("No AP found :(","Trying again in a while","");
    }
    drawOnOffline(1);
 }
 
-// AP (re)found: the current image without the badge, else the info screen
+// AP found again: the current image without the badge, else the info screen
 static void ShowApFound(void)
 {
-   char Status[32];
-
    drawOnOffline(1);
    if(!drawCurrentImage()) {
-      snprintf(Status,sizeof(Status),"AP found, channel %d",currentChannel);
-      ShowInfoScreen(Status);
+      ShowBootApFound();
    }
 }
 

@@ -17,6 +17,7 @@
 #include <string.h>
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/gpio.h)
+#include DeviceFamily_constructPath(driverlib/aon_batmon.h)
 #include <ti/drivers/dpl/ClockP.h>
 #ifdef EPD_HW_SPI
 #include DeviceFamily_constructPath(driverlib/ssi.h)
@@ -84,7 +85,35 @@ struct {
    uint8_t  Record[EPD_DIAG_WAITS];    // script record type of the wait
    uint8_t  Result;           // 1 = ok, 2 = failed
    uint16_t PlaneMs[2];       // upload time of the B/W and yellow plane
+   // Supply (VDDS) during the busy waits of the last draw, from AON BATMON:
+   // the panel's behaviour depends on it (CLAUDE.md), and with a resistor in
+   // series with the supply the drop gives the current
+   uint16_t MinMv;
+   uint16_t MaxMv;
+   uint16_t Samples;          // fresh BATMON readings
 } gEpdDiag;
+
+// Lowest supply seen during the last draw, 0 = none since it was read
+uint16_t gEpdRefreshMinMv;
+
+static void EpdVddsSample(void)
+{
+   uint32_t Raw;
+   uint16_t Mv;
+
+   if(!AONBatMonNewBatteryMeasureReady()) {
+      return;
+   }
+   Raw = AONBatMonBatteryVoltageGet();    // clears the ready flag
+   Mv = (Raw >> 8) * 1000 + (Raw & 0xff) * 1000 / 256;
+   if(gEpdDiag.Samples == 0 || Mv < gEpdDiag.MinMv) {
+      gEpdDiag.MinMv = Mv;
+   }
+   if(Mv > gEpdDiag.MaxMv) {
+      gEpdDiag.MaxMv = Mv;
+   }
+   gEpdDiag.Samples++;
+}
 
 // Event trace for hangs, kept through a reset for a JTAG read (gEpdTrace in
 // the .map): Ev[] is a ring, Idx counts events; each entry is
@@ -226,6 +255,7 @@ static bool EpdWaitBusy(uint8_t Record)
    int i = gEpdDiag.Magic & 0xff;
 
    EpdWdt(BUSY_ASSERT_MS + REFRESH_FALLBACK_MS + BUSY_TIMEOUT_MS + 10000);
+   AONBatMonEnable();
    while(!EpdBusy() && Asserted < BUSY_ASSERT_MS) {
       EpdSleep(1);
       Asserted++;
@@ -246,10 +276,13 @@ static bool EpdWaitBusy(uint8_t Record)
             bRet = true;
             break;
          }
+         EpdVddsSample();
          EpdSleep(10);
          Waited += 10;
       }
    }
+   EpdVddsSample();
+   AONBatMonDisable();
    EpdTrace(TR_WAIT_DONE);
    EpdTrace(TR_LOG_START);
    ALOG("busy: asserted after %u ms, %u ms busy\n",Asserted,Waited);
@@ -487,6 +520,20 @@ static bool EpdRunScript(const uint8_t *p,const uint8_t *pEnd)
                ELOG("bad command record\n");
                return true;
             }
+#ifdef EPD_BTST
+         // Experiment: booster soft start (06) with our own 3 bytes, e.g.
+         // EPD_BTST=0x572B17, instead of the script's 57 2B 38
+            if(p[3] == 0x06 && Arg == 4) {
+               const uint8_t Btst[3] = {
+                  (EPD_BTST >> 16) & 0xff, (EPD_BTST >> 8) & 0xff, EPD_BTST & 0xff
+               };
+
+               ALOG("BTST %02x %02x %02x\n",Btst[0],Btst[1],Btst[2]);
+               EpdCmd(0x06,Btst,sizeof(Btst));
+               p += 3 + Arg;
+               continue;
+            }
+#endif
             EpdCmd(p[3],&p[4],Arg - 1);
             p += 3 + Arg;
             continue;
@@ -603,6 +650,11 @@ bool EpdDrawFromFlash(uint32_t PlaneAdr,uint8_t Flags)
    EpdPower(false);
    EpdTrace(TR_DRAW_DONE);
    gEpdDiag.Result = bRet ? 2 : 1;
+   if(gEpdDiag.Samples != 0) {
+      gEpdRefreshMinMv = gEpdDiag.MinMv;
+      LOG("VDDS during draw: %u..%u mV, %u samples\n",gEpdDiag.MinMv,
+          gEpdDiag.MaxMv,gEpdDiag.Samples);
+   }
    return bRet;
 }
 

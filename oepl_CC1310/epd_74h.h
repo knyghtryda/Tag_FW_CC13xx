@@ -57,6 +57,9 @@ typedef struct {
 // Layer for the following draws, NULL for none
 void EpdSetLayer(const EpdLayer *pLayer);
 
+// Lowest supply voltage (mV) during the last draw's busy waits, 0 = none
+extern uint16_t gEpdRefreshMinMv;
+
 #ifdef EPD_TEST
 void EpdTest(void);
 #endif

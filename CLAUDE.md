@@ -71,6 +71,16 @@ ever written over JTAG.
 `Chroma74H` is the 74H OEPL tag firmware (`oepl_74h.c`, `common/` radio,
 syncedproto and powermgt; no EasyLink). `EpdTest` draws the stock screen from
 SPI flash and idles. Debug/Proxy are the original ping test and proxy builds.
+One-off test switches for `Chroma74H` (pass as the wrapper's make argument
+`"EXTRA_DEFINES=-D..."`): `WDT_TEST` (hang once, expect a watchdog reset),
+`SCREEN_TEST` (draw each built-in screen), `FILL_TEST=0|1|2` (whole panel
+black/yellow/white, then hold; for judging drive uniformity),
+`REPORT_REFRESH_MV` (the check-in after a draw reports the lowest supply
+voltage during the refresh as the battery voltage; every build keeps it, with
+the max and sample count, in `gEpdDiag` for a JTAG read), `EPD_BTST=0xAABBCC`
+(booster soft start bytes instead of the script's `57 2B 38`; `57 2B 17`
+drove the panel too weakly and left the gradient). `EPD_SPI=` as a
+make argument builds the bit-banged EPD SPI instead of SSI1.
 
 Output: `oepl_CC1310/build/<CONFIG>/oepl_CC1310.out` + `.map` (gitignored).
 The wrapper builds from an rsync'd copy in `~/build/Tag_FW_CC13xx`, because
@@ -126,6 +136,19 @@ A `dslite --mode memory` read of a running tag returns live RAM (useful for
 diagnostics, e.g. `gEpdDiag` in `epd_74h.c`; find the address in the
 `.map`), but **the firmware restarts afterwards** — seen as the EPD test
 redrawing after each read.
+
+**The 74H panel draws worse at higher supply voltage (2026-11-16).** At 3.0 V
+and 3.3 V (XDS110 output or bench supply) an all-black draw comes out black in
+the top third and increasingly yellow/brown and speckled below, with a ghost
+of the previous image; the top third flashes darker during the refresh, and
+yellow bars look brown. Only at ~2.3 V (bench supply, or 2 of the 6 cells
+sagging under load) is it even. **Stock firmware does the same**: flashed
+back, it drew the same all-black slot at 3.3 V with the same gradient. Our
+command stream matches stock exactly (RE decode), and a bit-banged SPI build
+looked the same as SSI1, so this is the panel/board, not the firmware. Stock's
+own last screen (black circle + checkmark on a full pack) looked clean; why is
+open. Judge drawing quality at ~2.3–2.7 V or on the tag's batteries; the
+debugger's 3.3 V is fine for everything else.
 
 Errors -242 / -2131 / -275 are a marginal TMS/TCK connection or the wrong scan
 format: re-check the two JTAG wires, then drop TCLK to 100 kHz. On the 74H+
@@ -187,6 +210,17 @@ prints all of this.
 - bb_epaper's `EP75R_800x480` (UC8179) left this panel blank: it uses partial
   window opcodes `0x91`/`0x92` that this controller doesn't accept. "686" in the
   script name probably names the actual controller.
+- **Controller: probably the Jadard JD79686AB** (inference: "686" plus every
+  script opcode matches its command set; datasheet v1.0.5 at
+  buydisplay.com/download/ic/JD79686AB.pdf). There `0x11` is DSP (data stop;
+  refresh starts once a full frame is in, which is why stock never sends DRF
+  `0x12`), partial update is `0x14`/`0x15`/`0x16` (PDTM1/PDTM2/PDRF, not
+  `0x91`/`0x92`), `E8` is PWS (power saving), `E5` TSSET (force temperature),
+  `E9` AUTO (PON-DRF-POF). PSR bit 4 = B/W only (LUT1 only), bit 5 = LUTs from
+  registers `0x20`–`0x24` instead of OTP; the script's `0x0F` is OTP LUTs,
+  B/W/colour. CDI `0x77` = DDX `11`: colour bit 0 = yellow, else B/W bit 1 =
+  white, as measured. Panel label: `YS4750GS091` / `SMY09Z1` / `J0AC6D02WF`
+  (no web hits).
 - The SPI flash holds no firmware copy; the stock firmware only exists in the
   CC1310's internal flash.
 - **Board pin map** (from the stock `BoardGpioInitTable` at `0xF164`, see

@@ -194,12 +194,37 @@ Bench tag: SN `MS10085924C`, 800×480 BWY (black/white/yellow).
       repeats it. Verified: v3 (JTAG, `chroma74h_full`) -> v4 by OTA from the AP
       (content mode 5); internal flash read back equals the v4 image, AP shows
       ver 4. Stock has no internal-flash self-update (RE project firmware.md 7)
+- [x] Boot screens, as on the CC1110 Chroma tags (v5, webcam-checked
+      2026-11-16): splash (MAC, FW, battery, temperature) on power-up or
+      reboot, then "Waiting for data" with AP MAC, channel, RSSI, LQI; a
+      preloaded SPLASHSCREEN / APFOUND image replaces either. Skipped after a
+      watchdog reset or crash (a reset loop would refresh the panel each time)
+- [x] Quick re-check after a boot check-in (v6, verified 2026-11-16): the AP's
+      radio answers the boot check-in with a sleep offered before the reboot
+      (up to maxsleep), so the tag checks in again after 40 s instead; image
+      back ~3 min after power-up instead of after the old sleep. AP side
+      (drop that offer on a boot / scan / watchdog check-in, so the AP renders
+      at once even without "Shorten latency"): branch
+      `fix/boot-checkin-sleep-offer` in worktree `../OEPL-boot-sleep-fix`,
+      not compiled yet (same PlatformIO problem as above)
+- [~] Panel gradient (2026-11-16): at 3.0 V and above the panel draws black
+      in the top part and increasingly yellow/brown below; the driven part
+      shrinks as the supply rises (~1/2 of the panel at 2.6 V on batteries,
+      1/3 at 3.3 V, even at ~2.3 V). Stock does the same; command stream,
+      SPI path, temperature and booster strength ruled out (CLAUDE.md).
+      Suspects left: the panel's power rails / reservoir caps on the board,
+      the flex's hot-bar bond, or the panel. Rail measurements need finer
+      probes than are at hand; not pursued for now
+- [x] Supply voltage during draws: sampled from BATMON in the busy waits
+      (`gEpdDiag.MinMv/MaxMv/Samples`); `REPORT_REFRESH_MV` reports the minimum
+      to the AP on the next check-in. 2 AA cells: 2558 mV at the lowest during
+      a boot screen, idle ~2.87-3.2 V
 
 ## README to-do list (all CC13xx tags)
 
 - [x] gzip support for image downloads
 - [x] Battery voltage and temperature measurement and reporting
-- [ ] UI: startup info screens and AP-lost screen
+- [x] UI: startup info screens and AP-lost screen (74H)
 - [ ] Status icons on normal screens (AP lost, low battery)
 - [ ] Static screens
 - [x] EPD interface on SPI hardware instead of bit banging (74H)

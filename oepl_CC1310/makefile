@@ -34,7 +34,9 @@ DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -D_CUSTOM_IO_=oepl_io.inl \
            -DEPD_TEST
 else ifeq ($(CONFIG),Chroma74H)
 # The OEPL tag firmware: main in oepl_74h.c, no EasyLink
-DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -DOEPL_74H -DEPD_HW_SPI
+# EPD_SPI= (empty) on the make command line: bit-banged EPD SPI instead of SSI1
+EPD_SPI ?= -DEPD_HW_SPI
+DEFINES += -DSERIAL_LOG=1 -DDEBUG_LOG=0 -DCHROMA_74H -DOEPL_74H $(EPD_SPI)
 # common/ OEPL code is written for C99 (the Aeon's compiler default).
 # Logging needs no float printf. Flash used, 2026-11-16: 52.5 KB without
 # either, 43.9 KB with both (--opt_level=4 would save another 1.3 KB).
