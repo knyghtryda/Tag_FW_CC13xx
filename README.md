@@ -89,6 +89,20 @@ Notes:
 
 Warnings are expected, but there shouldn't be any errors.
 
+### Chroma 74H release images from the command line (macOS, Linux, WSL)
+
+Install ARM-CGT 18.12.8 and SIMPLELINK_CC13X0_SDK 4.20.02.07 into `~/ti`,
+then run `tools/build_release.sh`. It builds the bootloader and the app and
+writes `chroma74h_full_<ver>.bin` (JTAG) and `chroma74h_ota_<ver>.bin` (OTA)
+to `oepl_CC1310/build/release/`.
+
+On Apple Silicon the TI installers refuse to start. With Rosetta installed
+(`softwareupdate --install-rosetta`), run the installer binary directly:
+
+```
+arch -x86_64 <installer>.app/Contents/MacOS/osx-x86_64 --mode unattended --prefix ~/ti
+```
+
 ## Flashing tags
 
 An xds110 or other cJTAG compatible programmer is needed to program CC13xx based tags.

@@ -44,6 +44,24 @@ mirrors the CCS project's options; run it through the wrapper:
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu -- bash /mnt/c/<path to repo>/tools/wsl_build.sh Chroma74H   # or Debug, Proxy, EpdTest
 ```
 
+**Command-line build (macOS)** — the same makefiles run in place
+(`make -C oepl_CC1310 CONFIG=Chroma74H`, `make -C bootloader_CC1310`) with
+ARM-CGT 18.12.8 and the CC13X0 SDK in `~/ti` and Xcode's command line tools
+(make 3.81, rsync, python3). Both TI installers are x86 and their
+`installbuilder.sh` launcher rejects Apple Silicon ("The current OS X version
+is not supported"); with Rosetta installed, run the bundled binary directly:
+
+```
+arch -x86_64 <installer>.app/Contents/MacOS/osx-x86_64 --mode unattended --prefix ~/ti
+```
+
+`tools/build_release.sh` (macOS or Linux/WSL) does the whole 74H release
+below in one step: clean builds of both, `out2bin.sh`, `make_74h_images.py`,
+output in `oepl_CC1310/build/release/` (`FW_VERSION=<n>` in the environment
+overrides `main.h`). DSLite comes with CCS:
+`/Applications/ti/ccs<ver>/ccs/ccs_base/DebugServer/bin/DSLite` takes the
+same arguments as `dslite.bat` below.
+
 Machine-specific notes (this checkout's path, the webcam on the panel) are in
 `CLAUDE.local.md`, which is gitignored.
 
@@ -86,9 +104,12 @@ drove the panel too weakly and left the gradient). `EPD_SPI=` as a
 make argument builds the bit-banged EPD SPI instead of SSI1.
 
 Output: `oepl_CC1310/build/<CONFIG>/oepl_CC1310.out` + `.map` (gitignored).
-The wrapper builds from an rsync'd copy in `~/build/Tag_FW_CC13xx`, because
-`/mnt/c` is case-insensitive: `#include "Board.h"` from `common/` would pick
-up `common/board.h` instead of `oepl_CC1310/Board.h`. `CONFIG=Release` doesn't
+The wrapper builds from an rsync'd copy in `~/build/Tag_FW_CC13xx`. That
+copy used to be required: `common/oepl_board.h` was `common/board.h`, and on
+a case-insensitive filesystem (`/mnt/c`, macOS) `#include "Board.h"` from
+`common/` picked it up instead of `oepl_CC1310/Board.h`. Since the rename the
+tree builds in place anywhere; don't add another header that differs from an
+existing one only by case. `CONFIG=Release` doesn't
 build (no board define, stale in the CCS project too). As of 2026-11-15, with
 no optimisation (as in CCS Debug): Debug uses 52.4 KB flash / 6.3 KB RAM,
 Proxy 59.4 KB / 7.0 KB, `.ccfg` at `0xFFA8` in both.
@@ -130,7 +151,7 @@ LaunchPad file) now defaults to the F64: `FLASH_SIZE 0x10000`, `RAM_SIZE
 0x4000`, so `.ccfg` lands at `0xFFA8`. An F128 tag (the Solum 2.9") needs
 `--define=CC1310F128` in the **linker** options (the linker command file only
 sees linker defines). Don't confuse it with the compiler define `CC1310_128K`,
-which Debug/Proxy set: in `common/board.h` that selects the 128 KB **SPI flash**
+which Debug/Proxy set: in `common/oepl_board.h` that selects the 128 KB **SPI flash**
 (MX25V1006) board config, not the chip. Before it was fixed, `.ccfg`
 went to 0x1FFA8 — nonexistent on an F64 — so earlier F64 builds can only have
 booted on the stock CCFG left in the last sector.
@@ -367,7 +388,7 @@ CCFG.
   offered) is < 5 min away. For bench tests set the AP's "Shorten latency
   during config" to yes and keep its web page open.
 - G5 decoder: `g5/` (from Tag_FW_Chroma, BSL 1.1 like `bb_epaper`), decoded
-  slot to slot in SPI flash, enabled by `G5_SUPPORT` in `common/board.h`. The
+  slot to slot in SPI flash, enabled by `G5_SUPPORT` in `common/oepl_board.h`. The
   AP's `g5Compress()` takes a 16-bit size, so a frame compressing above ~30 KB
   falls back to raw (96000 bytes, also handled).
 - To test the decoder on the PC: fetch the AP's file
