@@ -99,4 +99,9 @@ clean:
 
 .PHONY: all clean
 
+# armcl --preproc_dependency lists headers without the empty rules gcc -MP
+# adds: a header that was renamed or deleted would stop make with "No rule to
+# make target". These rules let make rebuild the object instead.
+%.h %.inl: ;
+
 -include $(OBJECTS:.obj=.d)
