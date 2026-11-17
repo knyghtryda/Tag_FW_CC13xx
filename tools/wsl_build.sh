@@ -3,10 +3,11 @@
 #
 #   wsl -d Ubuntu -- bash tools/wsl_build.sh [CONFIG] [make args...]
 #
-# The copy was needed while common/oepl_board.h was common/board.h: /mnt/c
-# is case-insensitive, so "Board.h" from common/ resolved to it. The tree now
-# builds in place too (make -C oepl_CC1310). The build output
-# (build/<CONFIG>/oepl_CC1310.out and .map) is copied back into the repo.
+# The copy keeps the build off /mnt/c, which WSL2 reads slowly (armcl opens
+# every header for every source file). It also used to keep includes
+# case-sensitive, until common/board.h became common/oepl_board.h. The build
+# output (build/<CONFIG>/oepl_CC1310.out and .map) is copied back into the
+# repo.
 set -e
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$HOME/build/Tag_FW_CC13xx"

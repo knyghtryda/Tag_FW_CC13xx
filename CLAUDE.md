@@ -58,7 +58,8 @@ arch -x86_64 <installer>.app/Contents/MacOS/osx-x86_64 --mode unattended --prefi
 `tools/build_release.sh` (macOS or Linux/WSL) does the whole 74H release
 below in one step: clean builds of both, `out2bin.sh`, `make_74h_images.py`,
 output in `oepl_CC1310/build/release/` (`FW_VERSION=<n>` in the environment
-overrides `main.h`). DSLite comes with CCS:
+overrides `main.h`). In WSL with the repo under `/mnt` it builds in the
+`~/build` copy and copies the build directories back. DSLite comes with CCS:
 `/Applications/ti/ccs<ver>/ccs/ccs_base/DebugServer/bin/DSLite` takes the
 same arguments as `dslite.bat` below.
 
@@ -104,12 +105,14 @@ drove the panel too weakly and left the gradient). `EPD_SPI=` as a
 make argument builds the bit-banged EPD SPI instead of SSI1.
 
 Output: `oepl_CC1310/build/<CONFIG>/oepl_CC1310.out` + `.map` (gitignored).
-The wrapper builds from an rsync'd copy in `~/build/Tag_FW_CC13xx`. That
-copy used to be required: `common/oepl_board.h` was `common/board.h`, and on
-a case-insensitive filesystem (`/mnt/c`, macOS) `#include "Board.h"` from
-`common/` picked it up instead of `oepl_CC1310/Board.h`. Since the rename the
-tree builds in place anywhere; don't add another header that differs from an
-existing one only by case. `CONFIG=Release` doesn't
+The wrapper builds from an rsync'd copy in `~/build/Tag_FW_CC13xx` because
+WSL2 reads `/mnt/c` slowly; `tools/build_release.sh` uses the same copy when
+run from `/mnt`. The copy also used to be needed for case-sensitive includes:
+`common/oepl_board.h` was `common/board.h`, and on a case-insensitive
+filesystem (`/mnt/c`, macOS) `#include "Board.h"` from `common/` picked it up
+instead of `oepl_CC1310/Board.h`. Since the rename the tree builds in place
+on any filesystem; don't add another header that differs from an existing one
+only by case. `CONFIG=Release` doesn't
 build (no board define, stale in the CCS project too). As of 2026-11-15, with
 no optimisation (as in CCS Debug): Debug uses 52.4 KB flash / 6.3 KB RAM,
 Proxy 59.4 KB / 7.0 KB, `.ccfg` at `0xFFA8` in both.

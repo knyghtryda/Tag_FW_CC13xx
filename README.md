@@ -94,7 +94,9 @@ Warnings are expected, but there shouldn't be any errors.
 Install ARM-CGT 18.12.8 and SIMPLELINK_CC13X0_SDK 4.20.02.07 into `~/ti`,
 then run `tools/build_release.sh`. It builds the bootloader and the app and
 writes `chroma74h_full_<ver>.bin` (JTAG) and `chroma74h_ota_<ver>.bin` (OTA)
-to `oepl_CC1310/build/release/`.
+to `oepl_CC1310/build/release/`. In WSL, with the repo on the Windows
+filesystem (`/mnt/c/...`), it builds in a copy under `~/build` for speed and
+copies the results back.
 
 On Apple Silicon the TI installers refuse to start. With Rosetta installed
 (`softwareupdate --install-rosetta`), run the installer binary directly:
